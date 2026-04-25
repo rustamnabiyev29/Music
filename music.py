@@ -694,7 +694,10 @@ async def social_result_menu() -> InlineKeyboardMarkup:
     me = await bot.me()
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"🤖 @{me.username}", url=await get_bot_link())],
+            [
+                InlineKeyboardButton(text=f"🤖 @{me.username}", url=await get_bot_link()),
+                InlineKeyboardButton(text="📥 скачать песню", url=await get_bot_link()),
+            ],
         ]
     )
 
@@ -1011,7 +1014,27 @@ def resolve_short_video_url(url: str) -> Optional[str]:
 def build_yt_dlp_options(user_id: int, platform: str) -> dict:
     outtmpl = os.path.join(TEMP_DIR, f"{user_id}_%(extractor)s_%(id)s.%(ext)s")
     referer = "https://www.tiktok.com/" if platform == "tiktok" else "https://www.instagram.com/"
-    return {
+    
+    # Enhanced headers for better compatibility
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Referer": referer,
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "max-age=0",
+    }
+    
+    opts = {
         "outtmpl": outtmpl,
         "noplaylist": True,
         "quiet": True,
@@ -1020,19 +1043,22 @@ def build_yt_dlp_options(user_id: int, platform: str) -> dict:
         "merge_output_format": "mp4",
         "format": "bv*+ba/b[ext=mp4]/b",
         "socket_timeout": 30,
-        "retries": 3,
-        "fragment_retries": 3,
-        "extractor_retries": 3,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/91.0.4472.124 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
-            "Referer": referer,
-        },
+        "retries": 5,
+        "fragment_retries": 5,
+        "extractor_retries": 5,
+        "http_headers": headers,
+        "skip_unavailable_fragments": True,
+        "youtube_include_dash_manifest": False,
     }
+    
+    # Add Instagram-specific options
+    if platform == "instagram":
+        opts.update({
+            "geo_bypass": True,
+            "geo_bypass_country": "US",
+        })
+    
+    return opts
 
 
 def is_instagram_auth_error(exc: Exception) -> bool:
@@ -1133,6 +1159,46 @@ def download_video_from_url(url: str, user_id: int) -> tuple[str, str]:
     raise RuntimeError(f"{platform} download failed without a specific error")
 
 
+def add_watermark_to_video(input_path: str, output_path: str, watermark_text: str = "@MusicTagUzBot") -> str:
+    """Add watermark text to video using ffmpeg drawtext filter."""
+    # Try to find a suitable font file
+    font_paths = [
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Arial.ttf",
+    ]
+    
+    font_path = None
+    for path in font_paths:
+        if os.path.exists(path):
+            font_path = path
+            break
+    
+    # Escape special characters in watermark text
+    watermark_escaped = watermark_text.replace("'", "\\'")
+    
+    # Build the drawtext filter
+    if font_path:
+        drawtext_filter = f"drawtext=text='{watermark_escaped}':fontfile='{font_path}':fontsize=24:fontcolor=white:x=(w-text_w)/2:y=h-50:box=1:boxcolor=black@0.5:boxborderw=5"
+    else:
+        # Fallback without font specification (use ffmpeg default)
+        drawtext_filter = f"drawtext=text='{watermark_escaped}':fontsize=24:fontcolor=white:x=(w-text_w)/2:y=h-50:box=1:boxcolor=black@0.5:boxborderw=5"
+    
+    command = [
+        FFMPEG_EXE,
+        "-y",
+        "-i",
+        input_path,
+        "-vf",
+        drawtext_filter,
+        "-c:a",
+        "copy",
+        output_path,
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
 def normalize_video_for_telegram(input_path: str, user_id: int) -> str:
     base_name = os.path.splitext(os.path.basename(input_path))[0] or f"{user_id}_video"
     output_path = os.path.join(TEMP_DIR, f"{user_id}_{base_name}_telegram.mp4")
@@ -1178,6 +1244,15 @@ async def handle_video_link(message: Message, url: str) -> None:
             normalized_path = await asyncio.to_thread(normalize_video_for_telegram, video_path, message.from_user.id)
             if os.path.exists(normalized_path):
                 video_path = normalized_path
+        except Exception:
+            pass
+
+        # Add watermark to the video
+        try:
+            watermarked_path = os.path.join(TEMP_DIR, f"{message.from_user.id}_watermarked_{os.path.basename(video_path)}")
+            await asyncio.to_thread(add_watermark_to_video, video_path, watermarked_path)
+            if os.path.exists(watermarked_path):
+                video_path = watermarked_path
         except Exception:
             pass
 
