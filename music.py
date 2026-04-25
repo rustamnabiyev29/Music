@@ -887,8 +887,11 @@ def prepare_audio_thumbnail(source_path: str, output_path: str) -> str:
         left = (width - side) // 2
         top = (height - side) // 2
         square = rgb.crop((left, top, left + side, top + side))
-        square.thumbnail((320, 320))
-        square.save(output_path, format="JPEG", quality=85, optimize=True)
+        square = square.resize((320, 320))
+        for quality in (85, 75, 65, 55, 45):
+            square.save(output_path, format="JPEG", quality=quality, optimize=True)
+            if os.path.getsize(output_path) <= 190 * 1024:
+                break
     return output_path
 
 
@@ -1417,13 +1420,22 @@ async def send_processed_track(message: Message, session: TrackSession) -> None:
 
     thumbnail_path = os.path.join(TEMP_DIR, f"{session.user_id}_audio_thumb.jpg")
     prepare_audio_thumbnail(get_display_cover_path(session), thumbnail_path)
-    thumb = FSInputFile(thumbnail_path)
-    await message.answer_audio(
-        audio=FSInputFile(output_path),
-        title=session.title,
-        performer=session.performer,
-        thumbnail=thumb,
-    )
+    send_kwargs = {
+        "audio": FSInputFile(output_path),
+        "title": session.title,
+        "performer": session.performer,
+    }
+    if session.caption:
+        send_kwargs["caption"] = session.caption
+        send_kwargs["parse_mode"] = "HTML"
+
+    try:
+        await message.answer_audio(
+            **send_kwargs,
+            thumbnail=FSInputFile(thumbnail_path),
+        )
+    except Exception:
+        await message.answer_audio(**send_kwargs)
 
 
 async def show_main_menu(target: Message) -> None:
