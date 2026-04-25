@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from html import escape
 from io import BytesIO
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from aiogram import Bot, Dispatcher, F
@@ -48,7 +49,16 @@ MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024
 MAX_VIDEO_SIZE_MB = 49
 MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-SUPPORTED_VIDEO_HOSTS = ("instagram.com",)
+SUPPORTED_VIDEO_HOSTS = (
+    "instagram.com",
+    "www.instagram.com",
+    "m.instagram.com",
+    "tiktok.com",
+    "www.tiktok.com",
+    "m.tiktok.com",
+    "vm.tiktok.com",
+    "vt.tiktok.com",
+)
 os.makedirs(DOWNLOADS, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -122,7 +132,7 @@ TRANSLATIONS = {
 » Я распознаю и нахожу песни
 
 ↻ Скачивание:
-» Видео из Instagram
+» Видео из Instagram и TikTok
 
 ▢ Видео:
 » Я обрезаю и создаю кружки (видеосообщения)
@@ -145,12 +155,12 @@ TRANSLATIONS = {
 ┠ 🎙 Конвертация музыки в голосовое сообщение
 ┠ ✂️ Обрезка музыки
 ┠ 💡 Другие возможности бота
-┗ 📼 Скачивание из Instagram""",
+┗ 📼 Скачивание из Instagram и TikTok""",
         "language_text": "🌐 Выберите язык интерфейса:",
         "weekly_hits_text": "❌ Топ-чарт временно недоступен. Пожалуйста, попробуйте позже.",
         "search_text": """📎 <b>Поиск музыки</b>
 Просто введите название трека или имя исполнителя — бот сразу покажет варианты.
-Вы также можете отправить ссылку на Instagram.
+Вы также можете отправить ссылку на Instagram или TikTok.
 
 💡 Инлайн-поиск
 Нажмите кнопку ниже и введите запрос прямо в поле ввода —
@@ -199,7 +209,7 @@ Ed Sheeran</code>
         "guide_voice": "Инструкция по конвертации в голосовое скоро будет.",
         "guide_cut": "Инструкция по обрезке музыки скоро будет.",
         "guide_other": "Раздел с другими возможностями скоро будет.",
-        "guide_search": "Гайд по скачиванию из Instagram скоро будет.",
+        "guide_search": "Гайд по скачиванию из Instagram и TikTok скоро будет.",
         "not_added": "Не добавлено",
         "added": "Добавлено",
         "space": "Пробел",
@@ -273,7 +283,7 @@ Ed Sheeran</code>
         "choose_speed": "▶ Выберите скорость воспроизведения.",
         "choose_bitrate": "Выберите битрейт (кбит/с):",
         "video_download_started": "⏬ Скачиваю видео по ссылке...",
-        "video_download_failed": "❌ Не удалось скачать видео по этой ссылке.",
+        "video_download_failed": "❌ Не удалось скачать видео по этой ссылке. Проверьте ссылку и попробуйте ещё раз.",
         "instagram_auth_required": "❌ Instagram не отдал это видео без входа в аккаунт.\nЕсли ссылка не скачивается, отправьте в бот файл `instagram_cookies.txt` и попробуйте снова.",
         "instagram_cookies_saved": "✅ Файл `instagram_cookies.txt` сохранён. Теперь отправьте ссылку ещё раз.",
         "instagram_cookies_invalid": "❌ Отправьте файл именно с именем `instagram_cookies.txt`.",
@@ -291,7 +301,7 @@ Ed Sheeran</code>
 » I recognize and find songs
 
 ↻ Downloading:
-» Video from Instagram
+» Video from Instagram and TikTok
 
 ▢ Video:
 » I trim and create video circles
@@ -314,12 +324,12 @@ If you don't want to add a tag, leave it as “❌ Not added”.
 ┠ 🎙 Converting music to voice message
 ┠ ✂️ Trimming music
 ┠ 💡 Other bot features
-┗ 📼 Downloading from Instagram""",
+┗ 📼 Downloading from Instagram and TikTok""",
         "language_text": "🌐 Choose interface language:",
         "weekly_hits_text": "❌ Weekly chart is temporarily unavailable. Please try again later.",
         "search_text": """📎 <b>Music search</b>
 Just enter a track name or artist name and the bot will show options right away.
-You can also send an Instagram link.
+You can also send an Instagram or TikTok link.
 
 💡 Inline search
 Tap the button below and enter a query directly in the input field —
@@ -368,7 +378,7 @@ You can use Telegram formatting:
         "guide_voice": "The voice conversion guide will be added soon.",
         "guide_cut": "The trimming guide will be added soon.",
         "guide_other": "The other features section will be added soon.",
-        "guide_search": "The Instagram download guide will be added soon.",
+        "guide_search": "The Instagram and TikTok download guide will be added soon.",
         "not_added": "Not added", "added": "Added", "space": "Space", "keep": "Don't change",
         "default_cover_source": "Default", "music_cover_source": "From music", "search_cover_source": "From track search",
         "title": "Title", "artist": "Artist", "size": "Size", "duration": "Duration", "effect_8d": "8D effect", "bass": "Bass", "speed": "Speed", "bitrate": "Bitrate", "trim": "Trim", "photo": "Photo", "voice": "Voice mode", "yes": "Yes",
@@ -401,7 +411,7 @@ You can use Telegram formatting:
 » Qo'shiqlarni taniyman va topaman
 
 ↻ Yuklab olish:
-» Instagram'dan video
+» Instagram va TikTok'dan video
 
 ▢ Video:
 » Kesaman va video doiracha tayyorlayman
@@ -424,12 +434,12 @@ Agar teg qo'shmoqchi bo'lmasangiz, “❌ Qo'shilmagan” holatda qoldiring.
 ┠ 🎙 Musiqani voice xabarga aylantirish
 ┠ ✂️ Musiqani kesish
 ┠ 💡 Boshqa imkoniyatlar
-┗ 📼 Instagram'dan yuklab olish""",
+┗ 📼 Instagram va TikTok'dan yuklab olish""",
         "language_text": "🌐 Interfeys tilini tanlang:",
         "weekly_hits_text": "❌ Haftalik chart vaqtincha mavjud emas. Keyinroq urinib ko'ring.",
         "search_text": """📎 <b>Musiqa qidirish</b>
 Trek nomi yoki ijrochi nomini kiriting, bot darhol variantlarni ko'rsatadi.
-Shuningdek Instagram havolasini yuborishingiz mumkin.
+Shuningdek Instagram yoki TikTok havolasini yuborishingiz mumkin.
 
 💡 Inline qidiruv
 Quyidagi tugmani bosing va so'rovni to'g'ridan-to'g'ri kiritish maydoniga yozing —
@@ -478,7 +488,7 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "guide_voice": "Voice'ga aylantirish qo'llanmasi tez orada qo'shiladi.",
         "guide_cut": "Kesish qo'llanmasi tez orada qo'shiladi.",
         "guide_other": "Boshqa imkoniyatlar bo'limi tez orada qo'shiladi.",
-        "guide_search": "Instagram'dan yuklab olish qo'llanmasi tez orada qo'shiladi.",
+        "guide_search": "Instagram va TikTok'dan yuklab olish qo'llanmasi tez orada qo'shiladi.",
         "not_added": "Qo'shilmagan", "added": "Qo'shildi", "space": "Bo'sh joy", "keep": "O'zgartirmaslik",
         "default_cover_source": "Standart", "music_cover_source": "Musiqadan", "search_cover_source": "Trek qidiruvidan",
         "title": "Nomi", "artist": "Ijrochi", "size": "Hajmi", "duration": "Davomiyligi", "effect_8d": "8D effekti", "bass": "Bass", "speed": "Tezlik", "bitrate": "Bitrate", "trim": "Kesish", "photo": "Foto", "voice": "Voice rejimi", "yes": "Ha",
@@ -660,7 +670,7 @@ def how_to_use_menu(user_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🎙 " + ("Converting music to voice message" if get_user_lang(user_id) == "en" else "Musiqani voice xabarga aylantirish" if get_user_lang(user_id) == "uz" else "Конвертация музыки в голосовое сообщение"), callback_data="guide_voice")],
             [InlineKeyboardButton(text="✂️ " + ("Trimming music" if get_user_lang(user_id) == "en" else "Musiqani kesish" if get_user_lang(user_id) == "uz" else "Обрезка музыки"), callback_data="guide_cut")],
             [InlineKeyboardButton(text="💡 " + ("Other bot features" if get_user_lang(user_id) == "en" else "Boshqa imkoniyatlar" if get_user_lang(user_id) == "uz" else "Другие возможности бота"), callback_data="guide_other")],
-            [InlineKeyboardButton(text="📼 " + ("Download from Instagram" if get_user_lang(user_id) == "en" else "Instagram'dan yuklab olish" if get_user_lang(user_id) == "uz" else "Скачивание из Instagram"), callback_data="guide_search")],
+            [InlineKeyboardButton(text="📼 " + ("Download from Instagram/TikTok" if get_user_lang(user_id) == "en" else "Instagram va TikTok'dan yuklab olish" if get_user_lang(user_id) == "uz" else "Скачивание из Instagram и TikTok"), callback_data="guide_search")],
             [InlineKeyboardButton(text=tr(user_id, "back"), callback_data="main_menu")],
         ]
     )
@@ -676,7 +686,7 @@ async def get_bot_link() -> str:
     return BOT_LINK_CACHE
 
 
-async def instagram_result_menu() -> InlineKeyboardMarkup:
+async def social_result_menu() -> InlineKeyboardMarkup:
     me = await bot.me()
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -956,8 +966,24 @@ def resolve_yt_dlp_filepath(info: dict, fallback_path: str) -> str:
     return fallback_path
 
 
-def build_yt_dlp_options(user_id: int) -> dict:
+def get_video_platform(url: str) -> str:
+    lowered = url.lower()
+    if "tiktok.com" in lowered or "vm.tiktok.com" in lowered or "vt.tiktok.com" in lowered:
+        return "tiktok"
+    return "instagram"
+
+
+def iter_candidate_video_urls(url: str) -> list[str]:
+    candidates = [url]
+    cleaned = urlunsplit((*urlsplit(url)[:3], "", ""))
+    if cleaned != url:
+        candidates.append(cleaned)
+    return candidates
+
+
+def build_yt_dlp_options(user_id: int, platform: str) -> dict:
     outtmpl = os.path.join(TEMP_DIR, f"{user_id}_%(extractor)s_%(id)s.%(ext)s")
+    referer = "https://www.tiktok.com/" if platform == "tiktok" else "https://www.instagram.com/"
     return {
         "outtmpl": outtmpl,
         "noplaylist": True,
@@ -965,67 +991,77 @@ def build_yt_dlp_options(user_id: int) -> dict:
         "no_warnings": True,
         "logger": SilentYtDlpLogger(),
         "merge_output_format": "mp4",
-        "format": "best[ext=mp4]/best",
+        "format": "bv*+ba/b[ext=mp4]/b",
         "socket_timeout": 30,
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 3,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/91.0.4472.124 Safari/537.36"
             ),
+            "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+            "Referer": referer,
         },
     }
 
 
 def is_instagram_auth_error(exc: Exception) -> bool:
     error_msg = str(exc).lower()
-    return "instagram sent an empty media response" in error_msg or "cookies-from-browser" in error_msg
+    return any(
+        marker in error_msg
+        for marker in (
+            "instagram sent an empty media response",
+            "login required",
+            "requested content is not available",
+            "cookies-from-browser",
+            "authentication",
+        )
+    )
 
 
-def iter_instagram_ydl_options(user_id: int) -> list[dict]:
-    options = [build_yt_dlp_options(user_id)]
+def iter_ydl_options(user_id: int, url: str) -> list[dict]:
+    platform = get_video_platform(url)
+    options = [build_yt_dlp_options(user_id, platform)]
+    if platform != "instagram":
+        return options
     if os.path.exists(INSTAGRAM_COOKIES_FILE):
         cookie_opts = dict(options[0])
         cookie_opts["cookiefile"] = INSTAGRAM_COOKIES_FILE
         options.insert(0, cookie_opts)
-    for browser_name in ("edge", "chrome", "firefox"):
-        browser_opts = dict(options[0])
-        browser_opts.pop("cookiefile", None)
-        browser_opts["cookiesfrombrowser"] = (browser_name,)
-        options.append(browser_opts)
     return options
 
 
 def download_video_from_url(url: str, user_id: int) -> tuple[str, str]:
     last_error: Optional[Exception] = None
     auth_error = False
+    platform = get_video_platform(url)
 
-    for ydl_opts in iter_instagram_ydl_options(user_id):
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info.get("title") or "video"
-                fallback_path = ydl.prepare_filename(info)
-                return resolve_yt_dlp_filepath(info, fallback_path), title
-        except DownloadError as exc:
-            last_error = exc
-            if is_instagram_auth_error(exc):
-                auth_error = True
-                continue
-            if ydl_opts.get("cookiesfrombrowser"):
-                continue
-            raise
-        except Exception as exc:
-            last_error = exc
-            if ydl_opts.get("cookiesfrombrowser"):
-                continue
-            raise
+    for candidate_url in iter_candidate_video_urls(url):
+        for ydl_opts in iter_ydl_options(user_id, candidate_url):
+            try:
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(candidate_url, download=True)
+                    title = info.get("title") or "video"
+                    fallback_path = ydl.prepare_filename(info)
+                    return resolve_yt_dlp_filepath(info, fallback_path), title
+            except DownloadError as exc:
+                last_error = exc
+                if platform == "instagram" and is_instagram_auth_error(exc):
+                    auth_error = True
+                    continue
+                raise
+            except Exception as exc:
+                last_error = exc
+                raise
 
     if auth_error:
         raise InstagramAuthRequiredError from last_error
     if last_error:
         raise last_error
-    raise RuntimeError("Instagram download failed without a specific error")
+    raise RuntimeError(f"{platform} download failed without a specific error")
 
 
 async def handle_video_link(message: Message, url: str) -> None:
@@ -1052,7 +1088,7 @@ async def handle_video_link(message: Message, url: str) -> None:
             video=FSInputFile(video_path),
             caption=escape(title),
             parse_mode="HTML",
-            reply_markup=await instagram_result_menu(),
+            reply_markup=await social_result_menu(),
         )
         await status.delete()
     except InstagramAuthRequiredError:
