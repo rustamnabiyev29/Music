@@ -954,6 +954,18 @@ def looks_like_instagram_cookies_file(file_name: str) -> bool:
     return lowered.endswith(".txt") and "instagram" in lowered and "cookie" in lowered
 
 
+def find_instagram_cookies_file() -> Optional[str]:
+    if os.path.exists(INSTAGRAM_COOKIES_FILE):
+        return INSTAGRAM_COOKIES_FILE
+
+    for file_name in os.listdir(os.getcwd()):
+        if looks_like_instagram_cookies_file(file_name):
+            candidate = os.path.join(os.getcwd(), file_name)
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
 def resolve_yt_dlp_filepath(info: dict, fallback_path: str) -> str:
     requested_downloads = info.get("requested_downloads") or []
     if requested_downloads:
@@ -1113,6 +1125,7 @@ def is_tiktok_short_link_error(url: str, exc: Exception) -> bool:
 
 def iter_ydl_options(user_id: int, url: str) -> list[dict]:
     platform = get_video_platform(url)
+    cookies_file = find_instagram_cookies_file()
     desktop_agent = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -1138,10 +1151,10 @@ def iter_ydl_options(user_id: int, url: str) -> list[dict]:
         ]
 
     options: list[dict] = []
-    if platform == "instagram" and os.path.exists(INSTAGRAM_COOKIES_FILE):
+    if platform == "instagram" and cookies_file:
         for variant in variants:
             cookie_opts = dict(variant)
-            cookie_opts["cookiefile"] = INSTAGRAM_COOKIES_FILE
+            cookie_opts["cookiefile"] = cookies_file
             options.append(cookie_opts)
     options.extend(variants)
     return options
