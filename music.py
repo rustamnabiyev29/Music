@@ -1009,17 +1009,29 @@ def build_yt_dlp_options(user_id: int, platform: str) -> dict:
 
 
 def is_instagram_auth_error(exc: Exception) -> bool:
-    error_msg = str(exc).lower()
-    return any(
-        marker in error_msg
-        for marker in (
-            "instagram sent an empty media response",
-            "login required",
-            "requested content is not available",
-            "cookies-from-browser",
-            "authentication",
-        )
+    pending = [exc]
+    seen: set[int] = set()
+    markers = (
+        "instagram sent an empty media response",
+        "login required",
+        "requested content is not available",
+        "cookies-from-browser",
+        "authentication",
+        "sessionid",
+        "cookie",
+        "private",
     )
+
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if any(marker in str(current).lower() for marker in markers):
+            return True
+        pending.append(getattr(current, "__cause__", None))
+        pending.append(getattr(current, "__context__", None))
+    return False
 
 
 def iter_ydl_options(user_id: int, url: str) -> list[dict]:
@@ -1052,10 +1064,13 @@ def download_video_from_url(url: str, user_id: int) -> tuple[str, str]:
                 if platform == "instagram" and is_instagram_auth_error(exc):
                     auth_error = True
                     continue
-                raise
+                continue
             except Exception as exc:
                 last_error = exc
-                raise
+                if platform == "instagram" and is_instagram_auth_error(exc):
+                    auth_error = True
+                    continue
+                continue
 
     if auth_error:
         raise InstagramAuthRequiredError from last_error
@@ -1105,9 +1120,12 @@ async def handle_video_link(message: Message, url: str) -> None:
         if not os.path.exists(video_path):
             raise FileNotFoundError(video_path)
 
-        video_path = await asyncio.to_thread(normalize_video_for_telegram, video_path, message.from_user.id)
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(video_path)
+        try:
+            normalized_path = await asyncio.to_thread(normalize_video_for_telegram, video_path, message.from_user.id)
+            if os.path.exists(normalized_path):
+                video_path = normalized_path
+        except Exception:
+            pass
 
         size_bytes = os.path.getsize(video_path)
         if size_bytes > MAX_VIDEO_SIZE_BYTES:
