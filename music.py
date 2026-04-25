@@ -694,10 +694,7 @@ async def social_result_menu() -> InlineKeyboardMarkup:
     me = await bot.me()
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"🤖 @{me.username}", url=await get_bot_link()),
-                InlineKeyboardButton(text="📥 скачать песню", url=await get_bot_link()),
-            ],
+            [InlineKeyboardButton(text=f"🤖 @{me.username}", url=await get_bot_link())],
         ]
     )
 
@@ -1136,23 +1133,6 @@ def download_video_from_url(url: str, user_id: int) -> tuple[str, str]:
     raise RuntimeError(f"{platform} download failed without a specific error")
 
 
-def add_watermark_to_video(input_path: str, output_path: str, watermark_text: str = "@MusicTagUzBot") -> str:
-    """Add watermark text to video using ffmpeg drawtext filter."""
-    command = [
-        FFMPEG_EXE,
-        "-y",
-        "-i",
-        input_path,
-        "-vf",
-        f"drawtext=text='{watermark_text}':fontfile='C\\:/Windows/Fonts/arial.ttf':fontsize=24:fontcolor=white:x=(w-text_w)/2:y=h-50:box=1:boxcolor=black@0.5:boxborderw=5",
-        "-c:a",
-        "copy",
-        output_path,
-    ]
-    subprocess.run(command, check=True, capture_output=True)
-    return output_path
-
-
 def normalize_video_for_telegram(input_path: str, user_id: int) -> str:
     base_name = os.path.splitext(os.path.basename(input_path))[0] or f"{user_id}_video"
     output_path = os.path.join(TEMP_DIR, f"{user_id}_{base_name}_telegram.mp4")
@@ -1198,15 +1178,6 @@ async def handle_video_link(message: Message, url: str) -> None:
             normalized_path = await asyncio.to_thread(normalize_video_for_telegram, video_path, message.from_user.id)
             if os.path.exists(normalized_path):
                 video_path = normalized_path
-        except Exception:
-            pass
-
-        # Add watermark to the video
-        try:
-            watermarked_path = os.path.join(TEMP_DIR, f"{message.from_user.id}_watermarked_{os.path.basename(video_path)}")
-            await asyncio.to_thread(add_watermark_to_video, video_path, watermarked_path)
-            if os.path.exists(watermarked_path):
-                video_path = watermarked_path
         except Exception:
             pass
 
