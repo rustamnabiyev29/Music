@@ -16,8 +16,9 @@ from urllib.parse import urlsplit, urlunsplit
 import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.exceptions import TelegramConflictError
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import (
+    BotCommand,
     CallbackQuery,
     FSInputFile,
     InputMediaPhoto,
@@ -1454,9 +1455,77 @@ async def show_saved_items(call: CallbackQuery) -> None:
     await call.message.edit_text(text, reply_markup=back_to_menu_button(call.from_user.id), parse_mode="HTML")
 
 
+def build_saved_tracks_text(user_id: int) -> str:
+    files = []
+    for name in os.listdir(DOWNLOADS):
+        path = os.path.join(DOWNLOADS, name)
+        if os.path.isfile(path):
+            size_mb = os.path.getsize(path) / 1024 / 1024
+            files.append(f"• <code>{escape(name)}</code> ({size_mb:.2f} MB)")
+    return tr(user_id, "saved_tracks_title") + "\n".join(files[:20]) if files else tr(user_id, "no_saved_tracks")
+
+
 @dp.message(CommandStart())
 async def start_cmd(message: Message) -> None:
     await message.answer(tr(message.from_user.id, "start_text"), reply_markup=start_menu(message.from_user.id))
+
+
+@dp.message(Command("menu"))
+async def menu_cmd(message: Message) -> None:
+    await message.answer(tr(message.from_user.id, "start_text"), reply_markup=start_menu(message.from_user.id))
+
+
+@dp.message(Command("help"))
+async def help_cmd(message: Message) -> None:
+    await message.answer(
+        tr(message.from_user.id, "how_to_use_text"),
+        reply_markup=how_to_use_menu(message.from_user.id),
+        parse_mode="HTML",
+    )
+
+
+@dp.message(Command("language"))
+async def language_cmd(message: Message) -> None:
+    await message.answer(
+        tr(message.from_user.id, "language_text"),
+        reply_markup=language_menu(message.from_user.id),
+    )
+
+
+@dp.message(Command("quicktags"))
+async def quicktags_cmd(message: Message) -> None:
+    settings = get_quick_settings(message.from_user.id)
+    await message.answer(
+        quick_tags_text(message.from_user.id, settings),
+        reply_markup=quick_tags_menu(message.from_user.id, settings),
+        parse_mode="HTML",
+    )
+
+
+@dp.message(Command("saved"))
+async def saved_cmd(message: Message) -> None:
+    await message.answer(
+        build_saved_tracks_text(message.from_user.id),
+        reply_markup=back_to_menu_button(message.from_user.id),
+        parse_mode="HTML",
+    )
+
+
+@dp.message(Command("search"))
+async def search_cmd(message: Message) -> None:
+    await message.answer(
+        tr(message.from_user.id, "search_text"),
+        reply_markup=search_music_menu(message.from_user.id),
+        parse_mode="HTML",
+    )
+
+
+@dp.message(Command("hits"))
+async def hits_cmd(message: Message) -> None:
+    await message.answer(
+        tr(message.from_user.id, "weekly_hits_text"),
+        reply_markup=back_to_menu_button(message.from_user.id),
+    )
 
 
 @dp.message(F.audio)
@@ -1857,6 +1926,18 @@ async def callbacks(call: CallbackQuery) -> None:
 async def main() -> None:
     print("Bot started...")
     await bot.delete_webhook(drop_pending_updates=False)
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Запустить бота"),
+            BotCommand(command="menu", description="Открыть главное меню"),
+            BotCommand(command="help", description="Как пользоваться ботом"),
+            BotCommand(command="language", description="Сменить язык"),
+            BotCommand(command="quicktags", description="Быстрые теги"),
+            BotCommand(command="saved", description="Сохраненные треки"),
+            BotCommand(command="search", description="Поиск музыки"),
+            BotCommand(command="hits", description="Хиты недели"),
+        ]
+    )
     try:
         await bot.get_updates(offset=-1, timeout=1, allowed_updates=[])
     except TelegramConflictError:
