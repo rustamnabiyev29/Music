@@ -2,10 +2,12 @@
 # Telegram Music Bot (Aiogram 3.x)
 
 import asyncio
+import json
 import logging
 import os
 import re
 import subprocess
+import time
 import urllib.request
 from dataclasses import dataclass
 from html import escape
@@ -35,6 +37,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 TOKEN = "8307283859:AAFuR9_rKnAUnnbJseTTUb3oAKmIXu8dVxc"
+ADMIN_ID = 5372929619
 
 bot = Bot(TOKEN)
 dp = Dispatcher()
@@ -46,6 +49,7 @@ DOWNLOADS = "downloads"
 TEMP_DIR = os.path.join(DOWNLOADS, "temp")
 DEFAULT_COVER_PATH = os.path.join(TEMP_DIR, "default_cover.jpg")
 INSTAGRAM_COOKIES_FILE = os.path.join(os.getcwd(), "instagram_cookies.txt")
+ADMIN_DATA_FILE = os.path.join(os.getcwd(), "admin_data.json")
 MAX_AUDIO_SIZE_MB = 20
 MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024
 MAX_VIDEO_SIZE_MB = 49
@@ -68,6 +72,7 @@ FFMPEG_EXE = get_ffmpeg_exe()
 BOT_LINK_CACHE: Optional[str] = None
 SOCIAL_RESULT_CAPTION = "@MusicTagUzBot"
 SOCIAL_RESULT_BUTTON_TEXT = "Скачать песню"
+STARTED_AT = time.time()
 
 
 @dataclass
@@ -136,6 +141,65 @@ bot_stats = {
     "video_mp3": 0,
     "video_trims": 0,
 }
+
+
+def load_admin_data() -> dict:
+    if not os.path.exists(ADMIN_DATA_FILE):
+        return {"users": {}}
+    try:
+        with open(ADMIN_DATA_FILE, "r", encoding="utf-8") as source:
+            data = json.load(source)
+    except Exception:
+        return {"users": {}}
+    if not isinstance(data, dict):
+        return {"users": {}}
+    users = data.get("users")
+    if not isinstance(users, dict):
+        data["users"] = {}
+    return data
+
+
+_admin_data = load_admin_data()
+known_users: dict[int, dict] = {}
+for raw_user_id, info in _admin_data.get("users", {}).items():
+    try:
+        user_id = int(raw_user_id)
+    except Exception:
+        continue
+    if isinstance(info, dict):
+        known_users[user_id] = info
+
+
+def save_admin_data() -> None:
+    data = {"users": {str(user_id): info for user_id, info in sorted(known_users.items())}}
+    with open(ADMIN_DATA_FILE, "w", encoding="utf-8") as target:
+        json.dump(data, target, ensure_ascii=False, indent=2)
+
+
+def is_admin(user_id: int) -> bool:
+    return user_id == ADMIN_ID
+
+
+def register_user(user) -> None:
+    if not user:
+        return
+    user_id = getattr(user, "id", None)
+    if not isinstance(user_id, int):
+        return
+    known_users[user_id] = {
+        "first_name": getattr(user, "first_name", "") or "",
+        "last_name": getattr(user, "last_name", "") or "",
+        "username": getattr(user, "username", "") or "",
+        "last_seen": int(time.time()),
+    }
+    save_admin_data()
+
+
+def format_uptime() -> str:
+    total = int(time.time() - STARTED_AT)
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 class InstagramAuthRequiredError(RuntimeError):
@@ -340,6 +404,14 @@ Ed Sheeran</code>
         "video_trim_failed": "❌ Не удалось обрезать это видео.",
         "video_ready": "✅ Готово.",
         "stats_text": "<b>Статистика бота</b>\n\n🎵 Музыка: {audio_edits}\n📥 Соцвидео: {social_downloads}\n⭕ Кружочки: {video_circles}\n🎥 Из кружочка в видео: {circle_to_video}\n🎶 Видео -> MP3: {video_mp3}\n✂️ Обрезка видео: {video_trims}",
+        "admin_only": "⛔ Эта команда доступна только администратору.",
+        "admin_panel_title": "<b>Админ-панель</b>\n\n👤 Пользователей: {user_count}\n⏱ Аптайм: {uptime}",
+        "admin_stats_btn": "📊 Статистика",
+        "admin_users_btn": "👥 Пользователи",
+        "admin_files_btn": "🗂 Файлы",
+        "admin_back_btn": "« Назад",
+        "admin_users_text": "<b>Пользователи бота</b>\n\nВсего: {user_count}\n\n{users}",
+        "admin_files_text": "<b>Файлы бота</b>\n\n📁 Всего файлов: {file_count}\n💾 Общий размер: {total_size_mb:.2f} MB\n🗂 В downloads: {downloads_count}\n🧪 В temp: {temp_count}",
         "lang_ru": "Русский",
         "lang_en": "English",
         "lang_uz": "O'zbek",
@@ -474,6 +546,14 @@ You can use Telegram formatting:
         "video_trim_failed": "❌ Couldn't trim this video.",
         "video_ready": "✅ Done.",
         "stats_text": "<b>Bot stats</b>\n\n🎵 Music: {audio_edits}\n📥 Social videos: {social_downloads}\n⭕ Video circles: {video_circles}\n🎥 Circle to video: {circle_to_video}\n🎶 Video -> MP3: {video_mp3}\n✂️ Video trims: {video_trims}",
+        "admin_only": "⛔ This command is available only to the administrator.",
+        "admin_panel_title": "<b>Admin panel</b>\n\n👤 Users: {user_count}\n⏱ Uptime: {uptime}",
+        "admin_stats_btn": "📊 Stats",
+        "admin_users_btn": "👥 Users",
+        "admin_files_btn": "🗂 Files",
+        "admin_back_btn": "« Back",
+        "admin_users_text": "<b>Bot users</b>\n\nTotal: {user_count}\n\n{users}",
+        "admin_files_text": "<b>Bot files</b>\n\n📁 Total files: {file_count}\n💾 Total size: {total_size_mb:.2f} MB\n🗂 In downloads: {downloads_count}\n🧪 In temp: {temp_count}",
         "lang_ru": "Russian", "lang_en": "English", "lang_uz": "Uzbek",
     },
     "uz": {
@@ -606,6 +686,14 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "video_trim_failed": "❌ Bu videoni kesib bo'lmadi.",
         "video_ready": "✅ Tayyor.",
         "stats_text": "<b>Bot statistikasi</b>\n\n🎵 Musiqa: {audio_edits}\n📥 Ijtimoiy videolar: {social_downloads}\n⭕ Doirachalar: {video_circles}\n🎥 Doirachadan video: {circle_to_video}\n🎶 Video -> MP3: {video_mp3}\n✂️ Video kesishlar: {video_trims}",
+        "admin_only": "⛔ Bu buyruq faqat administrator uchun.",
+        "admin_panel_title": "<b>Admin panel</b>\n\n👤 Foydalanuvchilar: {user_count}\n⏱ Uptime: {uptime}",
+        "admin_stats_btn": "📊 Statistika",
+        "admin_users_btn": "👥 Foydalanuvchilar",
+        "admin_files_btn": "🗂 Fayllar",
+        "admin_back_btn": "« Orqaga",
+        "admin_users_text": "<b>Bot foydalanuvchilari</b>\n\nJami: {user_count}\n\n{users}",
+        "admin_files_text": "<b>Bot fayllari</b>\n\n📁 Jami fayl: {file_count}\n💾 Umumiy hajm: {total_size_mb:.2f} MB\n🗂 Downloads ichida: {downloads_count}\n🧪 Temp ichida: {temp_count}",
         "lang_ru": "Ruscha", "lang_en": "English", "lang_uz": "O'zbek",
     },
 }
@@ -895,6 +983,28 @@ def video_menu(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def admin_menu(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=tr(user_id, "admin_stats_btn"), callback_data="admin_stats"),
+                InlineKeyboardButton(text=tr(user_id, "admin_users_btn"), callback_data="admin_users"),
+            ],
+            [InlineKeyboardButton(text=tr(user_id, "admin_files_btn"), callback_data="admin_files")],
+            [InlineKeyboardButton(text=tr(user_id, "close"), callback_data="admin_close")],
+        ]
+    )
+
+
+def admin_back_menu(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=tr(user_id, "admin_back_btn"), callback_data="admin_panel")],
+            [InlineKeyboardButton(text=tr(user_id, "close"), callback_data="admin_close")],
+        ]
+    )
+
+
 def seconds_to_mmss(seconds: int) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
@@ -942,6 +1052,55 @@ def format_video_text(session: VideoSession) -> str:
         f"💾 <b>{tr(session.user_id, 'size')}:</b> <code>{session.size_mb:.2f} MB</code>\n"
         f"⏱ <b>{tr(session.user_id, 'duration')}:</b> <code>{seconds_to_mmss(session.duration_seconds)}</code>\n"
         f"✂️ <b>{tr(session.user_id, 'trim')}:</b> {trim_value}"
+    )
+
+
+def build_admin_panel_text(user_id: int) -> str:
+    return tr(
+        user_id,
+        "admin_panel_title",
+        user_count=len(known_users),
+        uptime=format_uptime(),
+    )
+
+
+def build_admin_users_text(user_id: int) -> str:
+    sorted_users = sorted(
+        known_users.items(),
+        key=lambda item: item[1].get("last_seen", 0),
+        reverse=True,
+    )[:15]
+    lines = []
+    for item_user_id, info in sorted_users:
+        username = info.get("username") or "—"
+        name = " ".join(part for part in [info.get("first_name", ""), info.get("last_name", "")] if part).strip() or "—"
+        lines.append(f"• <code>{item_user_id}</code> | @{escape(username)} | {escape(name)}")
+    users_text = "\n".join(lines) if lines else "—"
+    return tr(user_id, "admin_users_text", user_count=len(known_users), users=users_text)
+
+
+def build_admin_files_text(user_id: int) -> str:
+    file_count = 0
+    total_size = 0
+    downloads_count = 0
+    temp_count = 0
+    for root, _, files in os.walk(DOWNLOADS):
+        for file_name in files:
+            path = os.path.join(root, file_name)
+            if os.path.isfile(path):
+                file_count += 1
+                total_size += os.path.getsize(path)
+                if root == DOWNLOADS:
+                    downloads_count += 1
+                elif root.startswith(TEMP_DIR):
+                    temp_count += 1
+    return tr(
+        user_id,
+        "admin_files_text",
+        file_count=file_count,
+        total_size_mb=total_size / 1024 / 1024,
+        downloads_count=downloads_count,
+        temp_count=temp_count,
     )
 
 
@@ -1844,16 +2003,19 @@ def build_saved_tracks_text(user_id: int) -> str:
 
 @dp.message(CommandStart())
 async def start_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(tr(message.from_user.id, "start_text"), reply_markup=start_menu(message.from_user.id))
 
 
 @dp.message(Command("menu"))
 async def menu_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(tr(message.from_user.id, "start_text"), reply_markup=start_menu(message.from_user.id))
 
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(
         tr(message.from_user.id, "how_to_use_text"),
         reply_markup=how_to_use_menu(message.from_user.id),
@@ -1863,6 +2025,7 @@ async def help_cmd(message: Message) -> None:
 
 @dp.message(Command("language"))
 async def language_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(
         tr(message.from_user.id, "language_text"),
         reply_markup=language_menu(message.from_user.id),
@@ -1871,6 +2034,7 @@ async def language_cmd(message: Message) -> None:
 
 @dp.message(Command("quicktags"))
 async def quicktags_cmd(message: Message) -> None:
+    register_user(message.from_user)
     settings = get_quick_settings(message.from_user.id)
     await message.answer(
         quick_tags_text(message.from_user.id, settings),
@@ -1881,6 +2045,7 @@ async def quicktags_cmd(message: Message) -> None:
 
 @dp.message(Command("saved"))
 async def saved_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(
         build_saved_tracks_text(message.from_user.id),
         reply_markup=back_to_menu_button(message.from_user.id),
@@ -1890,6 +2055,7 @@ async def saved_cmd(message: Message) -> None:
 
 @dp.message(Command("search"))
 async def search_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(
         tr(message.from_user.id, "search_text"),
         reply_markup=search_music_menu(message.from_user.id),
@@ -1899,6 +2065,7 @@ async def search_cmd(message: Message) -> None:
 
 @dp.message(Command("circle"))
 async def circle_cmd(message: Message) -> None:
+    register_user(message.from_user)
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) > 1:
         url = extract_supported_url(parts[1])
@@ -1910,11 +2077,13 @@ async def circle_cmd(message: Message) -> None:
 
 @dp.message(Command("video"))
 async def video_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(tr(message.from_user.id, "uncircle_prompt"))
 
 
 @dp.message(Command("socialcaption"))
 async def social_caption_cmd(message: Message) -> None:
+    register_user(message.from_user)
     text = (message.text or "").split(maxsplit=1)
     if len(text) < 2:
         await message.answer(
@@ -1926,13 +2095,27 @@ async def social_caption_cmd(message: Message) -> None:
     await message.answer(tr(message.from_user.id, "video_caption_saved"))
 
 
+@dp.message(Command("admin"))
+async def admin_cmd(message: Message) -> None:
+    register_user(message.from_user)
+    if not is_admin(message.from_user.id):
+        await message.answer(tr(message.from_user.id, "admin_only"))
+        return
+    await message.answer(build_admin_panel_text(message.from_user.id), reply_markup=admin_menu(message.from_user.id), parse_mode="HTML")
+
+
 @dp.message(Command("stats"))
 async def stats_cmd(message: Message) -> None:
+    register_user(message.from_user)
+    if not is_admin(message.from_user.id):
+        await message.answer(tr(message.from_user.id, "admin_only"))
+        return
     await message.answer(tr(message.from_user.id, "stats_text", **bot_stats), parse_mode="HTML")
 
 
 @dp.message(Command("hits"))
 async def hits_cmd(message: Message) -> None:
+    register_user(message.from_user)
     await message.answer(
         tr(message.from_user.id, "weekly_hits_text"),
         reply_markup=back_to_menu_button(message.from_user.id),
@@ -1941,6 +2124,7 @@ async def hits_cmd(message: Message) -> None:
 
 @dp.message(F.audio)
 async def get_music(message: Message) -> None:
+    register_user(message.from_user)
     audio = message.audio
     if audio.file_size and audio.file_size > MAX_AUDIO_SIZE_BYTES:
         size_mb = round(audio.file_size / 1024 / 1024, 2)
@@ -2002,6 +2186,7 @@ async def get_music(message: Message) -> None:
 
 @dp.message(F.video)
 async def handle_video_message(message: Message) -> None:
+    register_user(message.from_user)
     session = get_session(message.from_user.id)
     settings = get_quick_settings(message.from_user.id)
     if session or settings.pending_action:
@@ -2039,6 +2224,7 @@ async def handle_video_message(message: Message) -> None:
 
 @dp.message(F.video_note)
 async def handle_video_note_message(message: Message) -> None:
+    register_user(message.from_user)
     session = get_session(message.from_user.id)
     settings = get_quick_settings(message.from_user.id)
     if session or settings.pending_action:
@@ -2048,6 +2234,7 @@ async def handle_video_note_message(message: Message) -> None:
 
 @dp.message(F.photo)
 async def handle_photo_input(message: Message) -> None:
+    register_user(message.from_user)
     session = get_session(message.from_user.id)
     settings = get_quick_settings(message.from_user.id)
 
@@ -2098,6 +2285,7 @@ async def handle_photo_input(message: Message) -> None:
 
 @dp.message(F.document)
 async def handle_document_input(message: Message) -> None:
+    register_user(message.from_user)
     document = message.document
     if not document:
         return
@@ -2113,6 +2301,7 @@ async def handle_document_input(message: Message) -> None:
 
 @dp.message(F.text)
 async def handle_text_input(message: Message) -> None:
+    register_user(message.from_user)
     session = get_session(message.from_user.id)
     video_session = video_sessions.get(message.from_user.id)
     settings = get_quick_settings(message.from_user.id)
@@ -2236,12 +2425,43 @@ async def handle_text_input(message: Message) -> None:
 async def callbacks(call: CallbackQuery) -> None:
     data = call.data
     user_id = call.from_user.id
+    register_user(call.from_user)
     session = get_session(user_id)
     video_session = video_sessions.get(user_id)
     settings = get_quick_settings(user_id)
     answered = False
 
-    if data == "main_menu":
+    if data == "admin_panel":
+        if not is_admin(user_id):
+            await call.answer(tr(user_id, "admin_only"), show_alert=True)
+            answered = True
+        else:
+            await call.message.edit_text(build_admin_panel_text(user_id), reply_markup=admin_menu(user_id), parse_mode="HTML")
+    elif data == "admin_stats":
+        if not is_admin(user_id):
+            await call.answer(tr(user_id, "admin_only"), show_alert=True)
+            answered = True
+        else:
+            await call.message.edit_text(tr(user_id, "stats_text", **bot_stats), reply_markup=admin_back_menu(user_id), parse_mode="HTML")
+    elif data == "admin_users":
+        if not is_admin(user_id):
+            await call.answer(tr(user_id, "admin_only"), show_alert=True)
+            answered = True
+        else:
+            await call.message.edit_text(build_admin_users_text(user_id), reply_markup=admin_back_menu(user_id), parse_mode="HTML")
+    elif data == "admin_files":
+        if not is_admin(user_id):
+            await call.answer(tr(user_id, "admin_only"), show_alert=True)
+            answered = True
+        else:
+            await call.message.edit_text(build_admin_files_text(user_id), reply_markup=admin_back_menu(user_id), parse_mode="HTML")
+    elif data == "admin_close":
+        if not is_admin(user_id):
+            await call.answer(tr(user_id, "admin_only"), show_alert=True)
+            answered = True
+        else:
+            await call.message.delete()
+    elif data == "main_menu":
         await show_main_menu(call.message)
     elif data == "quick_tags":
         settings.pending_action = None
@@ -2479,6 +2699,7 @@ async def main() -> None:
             BotCommand(command="circle", description="Сделать кружочек из видео"),
             BotCommand(command="video", description="Сделать видео из кружочка"),
             BotCommand(command="socialcaption", description="Подпись для соцвидео"),
+            BotCommand(command="admin", description="Админ-панель"),
             BotCommand(command="stats", description="Статистика бота"),
             BotCommand(command="hits", description="Хиты недели"),
         ]
