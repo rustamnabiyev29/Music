@@ -296,6 +296,9 @@ Ed Sheeran</code>
         "circle_prompt": "📹 Отправьте обычное видео, и я сделаю из него кружочек.",
         "circle_started": "🔄 Делаю кружочек из видео...",
         "circle_failed": "❌ Не удалось сделать кружочек из этого видео. Попробуйте другое видео.",
+        "uncircle_prompt": "🎥 Отправьте кружочек, и я превращу его в обычное видео.",
+        "uncircle_started": "🔄 Превращаю кружочек в обычное видео...",
+        "uncircle_failed": "❌ Не удалось превратить кружочек в обычное видео. Попробуйте ещё раз.",
         "lang_ru": "Русский",
         "lang_en": "English",
         "lang_uz": "O'zbek",
@@ -412,6 +415,9 @@ You can use Telegram formatting:
         "circle_prompt": "📹 Send a regular video and I will turn it into a video circle.",
         "circle_started": "🔄 Turning the video into a circle...",
         "circle_failed": "❌ Couldn't make a video circle from this video. Try another one.",
+        "uncircle_prompt": "🎥 Send a video circle and I will turn it into a regular video.",
+        "uncircle_started": "🔄 Turning the video circle into a regular video...",
+        "uncircle_failed": "❌ Couldn't turn this video circle into a regular video. Try again.",
         "lang_ru": "Russian", "lang_en": "English", "lang_uz": "Uzbek",
     },
     "uz": {
@@ -526,6 +532,9 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "circle_prompt": "📹 Oddiy video yuboring, men undan doiracha tayyorlayman.",
         "circle_started": "🔄 Videodan doiracha tayyorlayapman...",
         "circle_failed": "❌ Bu videodan doiracha tayyorlab bo'lmadi. Boshqa video yuboring.",
+        "uncircle_prompt": "🎥 Doiracha yuboring, men uni oddiy videoga aylantiraman.",
+        "uncircle_started": "🔄 Doirachani oddiy videoga aylantiryapman...",
+        "uncircle_failed": "❌ Bu doirachani oddiy videoga aylantirib bo'lmadi. Yana urinib ko'ring.",
         "lang_ru": "Ruscha", "lang_en": "English", "lang_uz": "O'zbek",
     },
 }
@@ -1289,6 +1298,40 @@ def convert_video_to_note(input_path: str, user_id: int) -> str:
     return output_path
 
 
+def convert_note_to_video(input_path: str, user_id: int) -> str:
+    base_name = os.path.splitext(os.path.basename(input_path))[0] or f"{user_id}_video_from_note"
+    output_path = os.path.join(TEMP_DIR, f"{user_id}_{base_name}_video.mp4")
+    command = [
+        FFMPEG_EXE,
+        "-y",
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-vf",
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
 async def handle_video_link(message: Message, url: str) -> None:
     status = await message.answer(tr(message.from_user.id, "video_download_started"))
     try:
@@ -1387,6 +1430,47 @@ async def handle_video_circle(message: Message) -> None:
         await status.delete()
     except Exception:
         await status.edit_text(tr(message.from_user.id, "circle_failed"))
+
+
+async def handle_video_note_to_video(message: Message) -> None:
+    video_note = message.video_note
+    if not video_note:
+        return
+
+    if video_note.file_size and video_note.file_size > MAX_VIDEO_SIZE_BYTES:
+        size_mb = video_note.file_size / 1024 / 1024
+        await message.answer(
+            tr(
+                message.from_user.id,
+                "video_too_large",
+                size_mb=size_mb,
+                max_mb=MAX_VIDEO_SIZE_MB,
+            )
+        )
+        return
+
+    status = await message.answer(tr(message.from_user.id, "uncircle_started"))
+    source_path = os.path.join(TEMP_DIR, f"{message.from_user.id}_{video_note.file_unique_id}_note_source.mp4")
+
+    try:
+        await download_telegram_file(video_note.file_id, source_path)
+        video_path = await asyncio.to_thread(convert_note_to_video, source_path, message.from_user.id)
+        if os.path.getsize(video_path) > MAX_VIDEO_SIZE_BYTES:
+            size_mb = os.path.getsize(video_path) / 1024 / 1024
+            await status.edit_text(
+                tr(
+                    message.from_user.id,
+                    "video_too_large",
+                    size_mb=size_mb,
+                    max_mb=MAX_VIDEO_SIZE_MB,
+                )
+            )
+            return
+
+        await message.answer_video(video=FSInputFile(video_path))
+        await status.delete()
+    except Exception:
+        await status.edit_text(tr(message.from_user.id, "uncircle_failed"))
 
 
 async def download_telegram_file(file_id: str, output_path: str) -> str:
@@ -1615,6 +1699,11 @@ async def circle_cmd(message: Message) -> None:
     await message.answer(tr(message.from_user.id, "circle_prompt"))
 
 
+@dp.message(Command("video"))
+async def video_cmd(message: Message) -> None:
+    await message.answer(tr(message.from_user.id, "uncircle_prompt"))
+
+
 @dp.message(Command("hits"))
 async def hits_cmd(message: Message) -> None:
     await message.answer(
@@ -1691,6 +1780,15 @@ async def handle_video_message(message: Message) -> None:
     if session or settings.pending_action:
         return
     await handle_video_circle(message)
+
+
+@dp.message(F.video_note)
+async def handle_video_note_message(message: Message) -> None:
+    session = get_session(message.from_user.id)
+    settings = get_quick_settings(message.from_user.id)
+    if session or settings.pending_action:
+        return
+    await handle_video_note_to_video(message)
 
 
 @dp.message(F.photo)
@@ -2040,6 +2138,7 @@ async def main() -> None:
             BotCommand(command="saved", description="Сохраненные треки"),
             BotCommand(command="search", description="Поиск музыки"),
             BotCommand(command="circle", description="Сделать кружочек из видео"),
+            BotCommand(command="video", description="Сделать видео из кружочка"),
             BotCommand(command="hits", description="Хиты недели"),
         ]
     )
