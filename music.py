@@ -293,6 +293,9 @@ Ed Sheeran</code>
         "instagram_cookies_saved": "✅ Файл `instagram_cookies.txt` сохранён. Теперь отправьте ссылку ещё раз.",
         "instagram_cookies_invalid": "❌ Отправьте файл именно с именем `instagram_cookies.txt`.",
         "video_too_large": "❌ Видео получилось слишком большим: {size_mb:.2f} MB.\nЯ могу отправлять только файлы до {max_mb} MB.",
+        "circle_prompt": "📹 Отправьте обычное видео, и я сделаю из него кружочек.",
+        "circle_started": "🔄 Делаю кружочек из видео...",
+        "circle_failed": "❌ Не удалось сделать кружочек из этого видео. Попробуйте другое видео.",
         "lang_ru": "Русский",
         "lang_en": "English",
         "lang_uz": "O'zbek",
@@ -406,6 +409,9 @@ You can use Telegram formatting:
         "instagram_cookies_saved": "✅ The `instagram_cookies.txt` file was saved. Now send the link again.",
         "instagram_cookies_invalid": "❌ Please send a file named exactly `instagram_cookies.txt`.",
         "video_too_large": "❌ The downloaded video is too large: {size_mb:.2f} MB.\nI can send files only up to {max_mb} MB.",
+        "circle_prompt": "📹 Send a regular video and I will turn it into a video circle.",
+        "circle_started": "🔄 Turning the video into a circle...",
+        "circle_failed": "❌ Couldn't make a video circle from this video. Try another one.",
         "lang_ru": "Russian", "lang_en": "English", "lang_uz": "Uzbek",
     },
     "uz": {
@@ -517,6 +523,9 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "instagram_cookies_saved": "✅ `instagram_cookies.txt` fayli saqlandi. Endi havolani yana yuboring.",
         "instagram_cookies_invalid": "❌ Aynan `instagram_cookies.txt` nomli fayl yuboring.",
         "video_too_large": "❌ Yuklangan video juda katta: {size_mb:.2f} MB.\nMen faqat {max_mb} MB gacha fayl yubora olaman.",
+        "circle_prompt": "📹 Oddiy video yuboring, men undan doiracha tayyorlayman.",
+        "circle_started": "🔄 Videodan doiracha tayyorlayapman...",
+        "circle_failed": "❌ Bu videodan doiracha tayyorlab bo'lmadi. Boshqa video yuboring.",
         "lang_ru": "Ruscha", "lang_en": "English", "lang_uz": "O'zbek",
     },
 }
@@ -1244,6 +1253,42 @@ def normalize_video_for_telegram(input_path: str, user_id: int) -> str:
     return output_path
 
 
+def convert_video_to_note(input_path: str, user_id: int) -> str:
+    base_name = os.path.splitext(os.path.basename(input_path))[0] or f"{user_id}_video_note"
+    output_path = os.path.join(TEMP_DIR, f"{user_id}_{base_name}_note.mp4")
+    command = [
+        FFMPEG_EXE,
+        "-y",
+        "-i",
+        input_path,
+        "-t",
+        "60",
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        "crop=min(iw\\,ih):min(iw\\,ih),scale=640:640",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "24",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
 async def handle_video_link(message: Message, url: str) -> None:
     status = await message.answer(tr(message.from_user.id, "video_download_started"))
     try:
@@ -1297,6 +1342,51 @@ async def handle_video_link(message: Message, url: str) -> None:
             return
         logging.exception("Failed to download video from %s", url, exc_info=exc)
         await status.edit_text(tr(message.from_user.id, "video_download_failed"))
+
+
+async def handle_video_circle(message: Message) -> None:
+    video = message.video
+    if not video:
+        return
+
+    if video.file_size and video.file_size > MAX_VIDEO_SIZE_BYTES:
+        size_mb = video.file_size / 1024 / 1024
+        await message.answer(
+            tr(
+                message.from_user.id,
+                "video_too_large",
+                size_mb=size_mb,
+                max_mb=MAX_VIDEO_SIZE_MB,
+            )
+        )
+        return
+
+    status = await message.answer(tr(message.from_user.id, "circle_started"))
+    source_ext = os.path.splitext(video.file_name or "")[1] or ".mp4"
+    source_path = os.path.join(TEMP_DIR, f"{message.from_user.id}_{video.file_unique_id}_source{source_ext}")
+
+    try:
+        await download_telegram_file(video.file_id, source_path)
+        note_path = await asyncio.to_thread(convert_video_to_note, source_path, message.from_user.id)
+        if os.path.getsize(note_path) > MAX_VIDEO_SIZE_BYTES:
+            size_mb = os.path.getsize(note_path) / 1024 / 1024
+            await status.edit_text(
+                tr(
+                    message.from_user.id,
+                    "video_too_large",
+                    size_mb=size_mb,
+                    max_mb=MAX_VIDEO_SIZE_MB,
+                )
+            )
+            return
+
+        await message.answer_video_note(
+            video_note=FSInputFile(note_path),
+            length=640,
+        )
+        await status.delete()
+    except Exception:
+        await status.edit_text(tr(message.from_user.id, "circle_failed"))
 
 
 async def download_telegram_file(file_id: str, output_path: str) -> str:
@@ -1520,6 +1610,11 @@ async def search_cmd(message: Message) -> None:
     )
 
 
+@dp.message(Command("circle"))
+async def circle_cmd(message: Message) -> None:
+    await message.answer(tr(message.from_user.id, "circle_prompt"))
+
+
 @dp.message(Command("hits"))
 async def hits_cmd(message: Message) -> None:
     await message.answer(
@@ -1587,6 +1682,15 @@ async def get_music(message: Message) -> None:
     )
     session.card_message_id = card.message_id
     user_sessions[message.from_user.id] = session
+
+
+@dp.message(F.video)
+async def handle_video_message(message: Message) -> None:
+    session = get_session(message.from_user.id)
+    settings = get_quick_settings(message.from_user.id)
+    if session or settings.pending_action:
+        return
+    await handle_video_circle(message)
 
 
 @dp.message(F.photo)
@@ -1935,6 +2039,7 @@ async def main() -> None:
             BotCommand(command="quicktags", description="Быстрые теги"),
             BotCommand(command="saved", description="Сохраненные треки"),
             BotCommand(command="search", description="Поиск музыки"),
+            BotCommand(command="circle", description="Сделать кружочек из видео"),
             BotCommand(command="hits", description="Хиты недели"),
         ]
     )
