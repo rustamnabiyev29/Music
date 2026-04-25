@@ -16,7 +16,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.exceptions import TelegramConflictError
 from aiogram.filters import CommandStart
 from aiogram.types import (
-    BufferedInputFile,
     CallbackQuery,
     FSInputFile,
     InputMediaPhoto,
