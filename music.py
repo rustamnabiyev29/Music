@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import subprocess
+import urllib.request
 from dataclasses import dataclass
 from html import escape
 from io import BytesIO
@@ -284,6 +285,7 @@ Ed Sheeran</code>
         "choose_bitrate": "Выберите битрейт (кбит/с):",
         "video_download_started": "⏬ Скачиваю видео по ссылке...",
         "video_download_failed": "❌ Не удалось скачать видео по этой ссылке. Проверьте ссылку и попробуйте ещё раз.",
+        "tiktok_short_link_failed": "❌ Короткая ссылка TikTok сейчас не открылась.\nОтправьте полную ссылку вида `https://www.tiktok.com/...` и попробуйте снова.",
         "instagram_auth_required": "❌ Instagram не отдал это видео без входа в аккаунт.\nЕсли ссылка не скачивается, отправьте в бот файл `instagram_cookies.txt` и попробуйте снова.",
         "instagram_cookies_saved": "✅ Файл `instagram_cookies.txt` сохранён. Теперь отправьте ссылку ещё раз.",
         "instagram_cookies_invalid": "❌ Отправьте файл именно с именем `instagram_cookies.txt`.",
@@ -396,6 +398,7 @@ You can use Telegram formatting:
         "choose_bass": "🎧 Choose bass level", "choose_8d": "🎧 Tap a button to change the 8D effect.", "choose_speed": "▶ Choose playback speed.", "choose_bitrate": "Choose bitrate (kbps):",
         "video_download_started": "⏬ Downloading video from the link...",
         "video_download_failed": "❌ Couldn't download the video from this link.",
+        "tiktok_short_link_failed": "❌ The short TikTok link couldn't be opened right now.\nSend the full `https://www.tiktok.com/...` link and try again.",
         "instagram_auth_required": "❌ Instagram didn't return this video without login.\nIf this reel doesn't download, send an `instagram_cookies.txt` file to the bot and try again.",
         "instagram_cookies_saved": "✅ The `instagram_cookies.txt` file was saved. Now send the link again.",
         "instagram_cookies_invalid": "❌ Please send a file named exactly `instagram_cookies.txt`.",
@@ -506,6 +509,7 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "choose_bass": "🎧 Bass darajasini tanlang", "choose_8d": "🎧 8D effektini o'zgartirish uchun tugmani bosing.", "choose_speed": "▶ O'ynatish tezligini tanlang.", "choose_bitrate": "Bitrate'ni tanlang (kbps):",
         "video_download_started": "⏬ Havola bo'yicha video yuklab olinmoqda...",
         "video_download_failed": "❌ Bu havola orqali videoni yuklab bo'lmadi.",
+        "tiktok_short_link_failed": "❌ TikTok qisqa havolasi hozir ochilmadi.\n`https://www.tiktok.com/...` ko'rinishidagi to'liq havolani yuboring va yana urinib ko'ring.",
         "instagram_auth_required": "❌ Instagram bu videoni akkauntga kirmasdan bermadi.\nAgar havola yuklanmasa, botga `instagram_cookies.txt` faylini yuboring va yana urinib ko'ring.",
         "instagram_cookies_saved": "✅ `instagram_cookies.txt` fayli saqlandi. Endi havolani yana yuboring.",
         "instagram_cookies_invalid": "❌ Aynan `instagram_cookies.txt` nomli fayl yuboring.",
@@ -975,10 +979,33 @@ def get_video_platform(url: str) -> str:
 
 def iter_candidate_video_urls(url: str) -> list[str]:
     candidates = [url]
+    if "vt.tiktok.com/" in url.lower() or "vm.tiktok.com/" in url.lower():
+        expanded = resolve_short_video_url(url)
+        if expanded and expanded not in candidates:
+            candidates.append(expanded)
     cleaned = urlunsplit((*urlsplit(url)[:3], "", ""))
     if cleaned != url:
         candidates.append(cleaned)
     return candidates
+
+
+def resolve_short_video_url(url: str) -> Optional[str]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/91.0.4472.124 Safari/537.36"
+            )
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            final_url = response.geturl()
+            return final_url if final_url else None
+    except Exception:
+        return None
 
 
 def build_yt_dlp_options(user_id: int, platform: str) -> dict:
@@ -1020,6 +1047,33 @@ def is_instagram_auth_error(exc: Exception) -> bool:
         "sessionid",
         "cookie",
         "private",
+    )
+
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if any(marker in str(current).lower() for marker in markers):
+            return True
+        pending.append(getattr(current, "__cause__", None))
+        pending.append(getattr(current, "__context__", None))
+    return False
+
+
+def is_tiktok_short_link_error(url: str, exc: Exception) -> bool:
+    lowered_url = url.lower()
+    if "vt.tiktok.com/" not in lowered_url and "vm.tiktok.com/" not in lowered_url:
+        return False
+
+    pending = [exc]
+    seen: set[int] = set()
+    markers = (
+        "unexpected_eof_while_reading",
+        "ssl",
+        "eof occurred in violation of protocol",
+        "connection was reset",
+        "unable to download webpage",
     )
 
     while pending:
@@ -1140,18 +1194,29 @@ async def handle_video_link(message: Message, url: str) -> None:
             )
             return
 
-        await message.answer_video(
-            video=FSInputFile(video_path),
-            caption=escape(title),
-            parse_mode="HTML",
-            reply_markup=await social_result_menu(),
-        )
+        try:
+            await message.answer_video(
+                video=FSInputFile(video_path),
+                caption=escape(title),
+                parse_mode="HTML",
+                reply_markup=await social_result_menu(),
+            )
+        except Exception:
+            await message.answer_document(
+                document=FSInputFile(video_path),
+                caption=escape(title),
+                parse_mode="HTML",
+                reply_markup=await social_result_menu(),
+            )
         await status.delete()
     except InstagramAuthRequiredError:
         await status.edit_text(tr(message.from_user.id, "instagram_auth_required"))
     except Exception as exc:
         if is_instagram_auth_error(exc):
             await status.edit_text(tr(message.from_user.id, "instagram_auth_required"))
+            return
+        if is_tiktok_short_link_error(url, exc):
+            await status.edit_text(tr(message.from_user.id, "tiktok_short_link_failed"))
             return
         logging.exception("Failed to download video from %s", url, exc_info=exc)
         await status.edit_text(tr(message.from_user.id, "video_download_failed"))
