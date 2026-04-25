@@ -26,7 +26,9 @@ from aiogram.types import (
     InputMediaPhoto,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     Message,
+    ReplyKeyboardMarkup,
 )
 from imageio_ffmpeg import get_ffmpeg_exe
 from mutagen import File as MutagenFile
@@ -133,6 +135,7 @@ video_sessions: dict[int, VideoSession] = {}
 quick_tag_settings: dict[int, QuickTagSettings] = {}
 user_languages: dict[int, str] = {}
 user_social_captions: dict[int, str] = {}
+admin_reply_keyboard_seeded: set[int] = set()
 bot_stats = {
     "audio_edits": 0,
     "social_downloads": 0,
@@ -410,6 +413,8 @@ Ed Sheeran</code>
         "admin_users_btn": "👥 Пользователи",
         "admin_files_btn": "🗂 Файлы",
         "admin_back_btn": "« Назад",
+        "admin_reply_btn": "🛠 Админ-панель",
+        "admin_reply_ready": "⬇️ Кнопка админ-панели закреплена снизу.",
         "admin_users_text": "<b>Пользователи бота</b>\n\nВсего: {user_count}\n\n{users}",
         "admin_files_text": "<b>Файлы бота</b>\n\n📁 Всего файлов: {file_count}\n💾 Общий размер: {total_size_mb:.2f} MB\n🗂 В downloads: {downloads_count}\n🧪 В temp: {temp_count}",
         "lang_ru": "Русский",
@@ -552,6 +557,8 @@ You can use Telegram formatting:
         "admin_users_btn": "👥 Users",
         "admin_files_btn": "🗂 Files",
         "admin_back_btn": "« Back",
+        "admin_reply_btn": "🛠 Admin Panel",
+        "admin_reply_ready": "⬇️ The admin panel button is pinned below.",
         "admin_users_text": "<b>Bot users</b>\n\nTotal: {user_count}\n\n{users}",
         "admin_files_text": "<b>Bot files</b>\n\n📁 Total files: {file_count}\n💾 Total size: {total_size_mb:.2f} MB\n🗂 In downloads: {downloads_count}\n🧪 In temp: {temp_count}",
         "lang_ru": "Russian", "lang_en": "English", "lang_uz": "Uzbek",
@@ -692,6 +699,8 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "admin_users_btn": "👥 Foydalanuvchilar",
         "admin_files_btn": "🗂 Fayllar",
         "admin_back_btn": "« Orqaga",
+        "admin_reply_btn": "🛠 Admin panel",
+        "admin_reply_ready": "⬇️ Admin panel tugmasi pastda biriktirildi.",
         "admin_users_text": "<b>Bot foydalanuvchilari</b>\n\nJami: {user_count}\n\n{users}",
         "admin_files_text": "<b>Bot fayllari</b>\n\n📁 Jami fayl: {file_count}\n💾 Umumiy hajm: {total_size_mb:.2f} MB\n🗂 Downloads ichida: {downloads_count}\n🧪 Temp ichida: {temp_count}",
         "lang_ru": "Ruscha", "lang_en": "English", "lang_uz": "O'zbek",
@@ -993,6 +1002,16 @@ def admin_menu(user_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=tr(user_id, "admin_files_btn"), callback_data="admin_files")],
             [InlineKeyboardButton(text=tr(user_id, "close"), callback_data="admin_close")],
         ]
+    )
+
+
+def admin_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup | None:
+    if not is_admin(user_id):
+        return None
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=tr(user_id, "admin_reply_btn"))]],
+        resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -1979,6 +1998,17 @@ async def show_main_menu(target: Message) -> None:
     await target.edit_text(tr(target.chat.id, "start_text"), reply_markup=start_menu(target.chat.id))
 
 
+async def ensure_admin_reply_keyboard(message: Message) -> None:
+    user_id = message.from_user.id
+    if not is_admin(user_id) or user_id in admin_reply_keyboard_seeded:
+        return
+    markup = admin_reply_keyboard(user_id)
+    if markup is None:
+        return
+    await message.answer(tr(user_id, "admin_reply_ready"), reply_markup=markup)
+    admin_reply_keyboard_seeded.add(user_id)
+
+
 async def show_saved_items(call: CallbackQuery) -> None:
     files = []
     for name in os.listdir(DOWNLOADS):
@@ -2004,12 +2034,14 @@ def build_saved_tracks_text(user_id: int) -> str:
 @dp.message(CommandStart())
 async def start_cmd(message: Message) -> None:
     register_user(message.from_user)
+    await ensure_admin_reply_keyboard(message)
     await message.answer(tr(message.from_user.id, "start_text"), reply_markup=start_menu(message.from_user.id))
 
 
 @dp.message(Command("menu"))
 async def menu_cmd(message: Message) -> None:
     register_user(message.from_user)
+    await ensure_admin_reply_keyboard(message)
     await message.answer(tr(message.from_user.id, "start_text"), reply_markup=start_menu(message.from_user.id))
 
 
@@ -2093,15 +2125,6 @@ async def social_caption_cmd(message: Message) -> None:
         return
     user_social_captions[message.from_user.id] = text[1].strip()
     await message.answer(tr(message.from_user.id, "video_caption_saved"))
-
-
-@dp.message(Command("admin"))
-async def admin_cmd(message: Message) -> None:
-    register_user(message.from_user)
-    if not is_admin(message.from_user.id):
-        await message.answer(tr(message.from_user.id, "admin_only"))
-        return
-    await message.answer(build_admin_panel_text(message.from_user.id), reply_markup=admin_menu(message.from_user.id), parse_mode="HTML")
 
 
 @dp.message(Command("stats"))
@@ -2306,6 +2329,14 @@ async def handle_text_input(message: Message) -> None:
     video_session = video_sessions.get(message.from_user.id)
     settings = get_quick_settings(message.from_user.id)
     text = message.text.strip()
+    admin_reply_buttons = {TRANSLATIONS[lang]["admin_reply_btn"] for lang in TRANSLATIONS}
+    if is_admin(message.from_user.id) and text in admin_reply_buttons:
+        await message.answer(
+            build_admin_panel_text(message.from_user.id),
+            reply_markup=admin_menu(message.from_user.id),
+            parse_mode="HTML",
+        )
+        return
     media_url = extract_supported_url(text)
     if not session and not video_session and not settings.pending_action:
         if media_url:
@@ -2699,7 +2730,6 @@ async def main() -> None:
             BotCommand(command="circle", description="Сделать кружочек из видео"),
             BotCommand(command="video", description="Сделать видео из кружочка"),
             BotCommand(command="socialcaption", description="Подпись для соцвидео"),
-            BotCommand(command="admin", description="Админ-панель"),
             BotCommand(command="stats", description="Статистика бота"),
             BotCommand(command="hits", description="Хиты недели"),
         ]
