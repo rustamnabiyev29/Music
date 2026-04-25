@@ -1064,10 +1064,48 @@ def download_video_from_url(url: str, user_id: int) -> tuple[str, str]:
     raise RuntimeError(f"{platform} download failed without a specific error")
 
 
+def normalize_video_for_telegram(input_path: str, user_id: int) -> str:
+    base_name = os.path.splitext(os.path.basename(input_path))[0] or f"{user_id}_video"
+    output_path = os.path.join(TEMP_DIR, f"{user_id}_{base_name}_telegram.mp4")
+    command = [
+        FFMPEG_EXE,
+        "-y",
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-vf",
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
 async def handle_video_link(message: Message, url: str) -> None:
     status = await message.answer(tr(message.from_user.id, "video_download_started"))
     try:
         video_path, title = await asyncio.to_thread(download_video_from_url, url, message.from_user.id)
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(video_path)
+
+        video_path = await asyncio.to_thread(normalize_video_for_telegram, video_path, message.from_user.id)
         if not os.path.exists(video_path):
             raise FileNotFoundError(video_path)
 
