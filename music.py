@@ -1009,26 +1009,12 @@ def admin_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup | None:
     if not is_admin(user_id):
         return None
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=tr(user_id, "admin_reply_btn"))]],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
-
-
-def admin_section_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup | None:
-    if not is_admin(user_id):
-        return None
-    return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(text=tr(user_id, "admin_stats_btn")),
                 KeyboardButton(text=tr(user_id, "admin_users_btn")),
             ],
             [KeyboardButton(text=tr(user_id, "admin_files_btn"))],
-            [
-                KeyboardButton(text=tr(user_id, "admin_back_btn")),
-                KeyboardButton(text=tr(user_id, "close")),
-            ],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -2016,14 +2002,14 @@ async def ensure_admin_reply_keyboard(message: Message) -> None:
     markup = admin_reply_keyboard(user_id)
     if markup is None:
         return
-    await message.answer(tr(user_id, "admin_reply_ready"), reply_markup=markup)
+    await message.answer(tr(user_id, "admin_panel_title", user_count=len(known_users), uptime=format_uptime()), reply_markup=markup, parse_mode="HTML")
     admin_reply_keyboard_seeded.add(user_id)
 
 
 async def send_admin_panel(message: Message) -> None:
     await message.answer(
         build_admin_panel_text(message.from_user.id),
-        reply_markup=admin_section_reply_keyboard(message.from_user.id),
+        reply_markup=admin_reply_keyboard(message.from_user.id),
         parse_mode="HTML",
     )
 
@@ -2352,39 +2338,28 @@ async def handle_text_input(message: Message) -> None:
     admin_stats_buttons = {TRANSLATIONS[lang]["admin_stats_btn"] for lang in TRANSLATIONS}
     admin_users_buttons = {TRANSLATIONS[lang]["admin_users_btn"] for lang in TRANSLATIONS}
     admin_files_buttons = {TRANSLATIONS[lang]["admin_files_btn"] for lang in TRANSLATIONS}
-    admin_back_buttons = {TRANSLATIONS[lang]["admin_back_btn"] for lang in TRANSLATIONS}
-    admin_close_buttons = {TRANSLATIONS[lang]["close"] for lang in TRANSLATIONS}
     if is_admin(message.from_user.id) and text in admin_panel_buttons:
         await send_admin_panel(message)
         return
     if is_admin(message.from_user.id) and text in admin_stats_buttons:
         await message.answer(
             tr(message.from_user.id, "stats_text", **bot_stats),
-            reply_markup=admin_section_reply_keyboard(message.from_user.id),
+            reply_markup=admin_reply_keyboard(message.from_user.id),
             parse_mode="HTML",
         )
         return
     if is_admin(message.from_user.id) and text in admin_users_buttons:
         await message.answer(
             build_admin_users_text(message.from_user.id),
-            reply_markup=admin_section_reply_keyboard(message.from_user.id),
+            reply_markup=admin_reply_keyboard(message.from_user.id),
             parse_mode="HTML",
         )
         return
     if is_admin(message.from_user.id) and text in admin_files_buttons:
         await message.answer(
             build_admin_files_text(message.from_user.id),
-            reply_markup=admin_section_reply_keyboard(message.from_user.id),
-            parse_mode="HTML",
-        )
-        return
-    if is_admin(message.from_user.id) and text in admin_back_buttons:
-        await send_admin_panel(message)
-        return
-    if is_admin(message.from_user.id) and text in admin_close_buttons:
-        await message.answer(
-            tr(message.from_user.id, "admin_reply_ready"),
             reply_markup=admin_reply_keyboard(message.from_user.id),
+            parse_mode="HTML",
         )
         return
     media_url = extract_supported_url(text)
@@ -2520,7 +2495,7 @@ async def callbacks(call: CallbackQuery) -> None:
             await call.message.delete()
             await call.message.answer(
                 build_admin_panel_text(user_id),
-                reply_markup=admin_section_reply_keyboard(user_id),
+                reply_markup=admin_reply_keyboard(user_id),
                 parse_mode="HTML",
             )
     elif data == "admin_stats":
@@ -2531,7 +2506,7 @@ async def callbacks(call: CallbackQuery) -> None:
             await call.message.delete()
             await call.message.answer(
                 tr(user_id, "stats_text", **bot_stats),
-                reply_markup=admin_section_reply_keyboard(user_id),
+                reply_markup=admin_reply_keyboard(user_id),
                 parse_mode="HTML",
             )
     elif data == "admin_users":
@@ -2542,7 +2517,7 @@ async def callbacks(call: CallbackQuery) -> None:
             await call.message.delete()
             await call.message.answer(
                 build_admin_users_text(user_id),
-                reply_markup=admin_section_reply_keyboard(user_id),
+                reply_markup=admin_reply_keyboard(user_id),
                 parse_mode="HTML",
             )
     elif data == "admin_files":
@@ -2553,7 +2528,7 @@ async def callbacks(call: CallbackQuery) -> None:
             await call.message.delete()
             await call.message.answer(
                 build_admin_files_text(user_id),
-                reply_markup=admin_section_reply_keyboard(user_id),
+                reply_markup=admin_reply_keyboard(user_id),
                 parse_mode="HTML",
             )
     elif data == "admin_close":
@@ -2563,8 +2538,9 @@ async def callbacks(call: CallbackQuery) -> None:
         else:
             await call.message.delete()
             await call.message.answer(
-                tr(user_id, "admin_reply_ready"),
+                build_admin_panel_text(user_id),
                 reply_markup=admin_reply_keyboard(user_id),
+                parse_mode="HTML",
             )
     elif data == "main_menu":
         await show_main_menu(call.message)
