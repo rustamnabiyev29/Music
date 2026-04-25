@@ -66,7 +66,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 FFMPEG_EXE = get_ffmpeg_exe()
 BOT_LINK_CACHE: Optional[str] = None
 SOCIAL_RESULT_CAPTION = "@MusicTagUzBot"
-SOCIAL_RESULT_BUTTON_TEXT = "📥 Скачать песню"
+SOCIAL_RESULT_BUTTON_TEXT = "Скачать песню"
 
 
 @dataclass
@@ -1042,6 +1042,12 @@ def build_yt_dlp_options(
         "extractor_retries": 3,
         "nocheckcertificate": True,
     }
+    if platform == "instagram":
+        options["extractor_args"] = {
+            "instagram": {
+                "app_id": ["936619743392459"],
+            }
+        }
     if include_headers:
         options["http_headers"] = headers
     return options
@@ -1113,11 +1119,18 @@ def iter_ydl_options(user_id: int, url: str) -> list[dict]:
         "Version/18.3 Mobile/15E148 Safari/604.1"
     )
 
-    variants = [
-        build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=True),
-        build_yt_dlp_options(user_id, platform, user_agent=mobile_agent, include_headers=True),
-        build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=False),
-    ]
+    if platform == "instagram":
+        variants = [
+            build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=False),
+            build_yt_dlp_options(user_id, platform, user_agent=mobile_agent, include_headers=False),
+            build_yt_dlp_options(user_id, platform, user_agent=mobile_agent, include_headers=True),
+        ]
+    else:
+        variants = [
+            build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=True),
+            build_yt_dlp_options(user_id, platform, user_agent=mobile_agent, include_headers=True),
+            build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=False),
+        ]
 
     options: list[dict] = []
     if platform == "instagram" and os.path.exists(INSTAGRAM_COOKIES_FILE):
