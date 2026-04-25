@@ -879,6 +879,19 @@ def ensure_jpeg_cover(image_bytes: bytes, output_path: str) -> str:
     return output_path
 
 
+def prepare_audio_thumbnail(source_path: str, output_path: str) -> str:
+    with Image.open(source_path) as img:
+        rgb = img.convert("RGB")
+        width, height = rgb.size
+        side = min(width, height)
+        left = (width - side) // 2
+        top = (height - side) // 2
+        square = rgb.crop((left, top, left + side, top + side))
+        square.thumbnail((320, 320))
+        square.save(output_path, format="JPEG", quality=85, optimize=True)
+    return output_path
+
+
 def ensure_default_cover() -> str:
     if os.path.exists(DEFAULT_COVER_PATH):
         return DEFAULT_COVER_PATH
@@ -1402,7 +1415,9 @@ async def send_processed_track(message: Message, session: TrackSession) -> None:
     session.duration_seconds = duration_seconds
     session.size_mb = size_mb
 
-    thumb = FSInputFile(get_display_cover_path(session))
+    thumbnail_path = os.path.join(TEMP_DIR, f"{session.user_id}_audio_thumb.jpg")
+    prepare_audio_thumbnail(get_display_cover_path(session), thumbnail_path)
+    thumb = FSInputFile(thumbnail_path)
     await message.answer_audio(
         audio=FSInputFile(output_path),
         title=session.title,
