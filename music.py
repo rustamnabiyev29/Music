@@ -107,9 +107,35 @@ class QuickTagSettings:
     pending_action: Optional[str] = None
 
 
+@dataclass
+class VideoSession:
+    video_path: str
+    original_file_name: str
+    duration_seconds: int
+    size_mb: float
+    user_id: int
+    chat_id: int
+    card_message_id: int
+    pending_action: Optional[str] = None
+    trim_start_ms: Optional[int] = None
+    trim_end_ms: Optional[int] = None
+    prompt_message_id: Optional[int] = None
+    prompt_chat_id: Optional[int] = None
+
+
 user_sessions: dict[int, TrackSession] = {}
+video_sessions: dict[int, VideoSession] = {}
 quick_tag_settings: dict[int, QuickTagSettings] = {}
 user_languages: dict[int, str] = {}
+user_social_captions: dict[int, str] = {}
+bot_stats = {
+    "audio_edits": 0,
+    "social_downloads": 0,
+    "video_circles": 0,
+    "circle_to_video": 0,
+    "video_mp3": 0,
+    "video_trims": 0,
+}
 
 
 class InstagramAuthRequiredError(RuntimeError):
@@ -299,6 +325,21 @@ Ed Sheeran</code>
         "uncircle_prompt": "🎥 Отправьте кружочек, и я превращу его в обычное видео.",
         "uncircle_started": "🔄 Превращаю кружочек в обычное видео...",
         "uncircle_failed": "❌ Не удалось превратить кружочек в обычное видео. Попробуйте ещё раз.",
+        "video_editor_title": "🎬 <b>Редактор видео</b>",
+        "video_circle_btn": "⭕ Кружочек",
+        "video_mp3_btn": "🎵 Видео -> MP3",
+        "video_trim_btn": "✂️ Обрезать видео",
+        "video_send_btn": "📤 Отправить видео",
+        "video_caption_btn": "🏷 Подпись соцвидео",
+        "video_trim_prompt": "Отправьте время для видео в формате `мм:сс - мм:сс`",
+        "video_caption_saved": "✅ Новая подпись для скачанных соцвидео сохранена.",
+        "video_caption_current": "Текущая подпись: {caption}",
+        "video_mp3_started": "🔄 Достаю музыку из видео...",
+        "video_mp3_failed": "❌ Не удалось достать музыку из этого видео.",
+        "video_trim_started": "🔄 Обрезаю видео...",
+        "video_trim_failed": "❌ Не удалось обрезать это видео.",
+        "video_ready": "✅ Готово.",
+        "stats_text": "<b>Статистика бота</b>\n\n🎵 Музыка: {audio_edits}\n📥 Соцвидео: {social_downloads}\n⭕ Кружочки: {video_circles}\n🎥 Из кружочка в видео: {circle_to_video}\n🎶 Видео -> MP3: {video_mp3}\n✂️ Обрезка видео: {video_trims}",
         "lang_ru": "Русский",
         "lang_en": "English",
         "lang_uz": "O'zbek",
@@ -418,6 +459,21 @@ You can use Telegram formatting:
         "uncircle_prompt": "🎥 Send a video circle and I will turn it into a regular video.",
         "uncircle_started": "🔄 Turning the video circle into a regular video...",
         "uncircle_failed": "❌ Couldn't turn this video circle into a regular video. Try again.",
+        "video_editor_title": "🎬 <b>Video editor</b>",
+        "video_circle_btn": "⭕ Circle",
+        "video_mp3_btn": "🎵 Video -> MP3",
+        "video_trim_btn": "✂️ Trim video",
+        "video_send_btn": "📤 Send video",
+        "video_caption_btn": "🏷 Social video caption",
+        "video_trim_prompt": "Send video timing in the format `mm:ss - mm:ss`",
+        "video_caption_saved": "✅ New caption for downloaded social videos was saved.",
+        "video_caption_current": "Current caption: {caption}",
+        "video_mp3_started": "🔄 Extracting music from the video...",
+        "video_mp3_failed": "❌ Couldn't extract music from this video.",
+        "video_trim_started": "🔄 Trimming the video...",
+        "video_trim_failed": "❌ Couldn't trim this video.",
+        "video_ready": "✅ Done.",
+        "stats_text": "<b>Bot stats</b>\n\n🎵 Music: {audio_edits}\n📥 Social videos: {social_downloads}\n⭕ Video circles: {video_circles}\n🎥 Circle to video: {circle_to_video}\n🎶 Video -> MP3: {video_mp3}\n✂️ Video trims: {video_trims}",
         "lang_ru": "Russian", "lang_en": "English", "lang_uz": "Uzbek",
     },
     "uz": {
@@ -535,6 +591,21 @@ Telegram formatlashidan foydalanishingiz mumkin:
         "uncircle_prompt": "🎥 Doiracha yuboring, men uni oddiy videoga aylantiraman.",
         "uncircle_started": "🔄 Doirachani oddiy videoga aylantiryapman...",
         "uncircle_failed": "❌ Bu doirachani oddiy videoga aylantirib bo'lmadi. Yana urinib ko'ring.",
+        "video_editor_title": "🎬 <b>Video tahrirlash</b>",
+        "video_circle_btn": "⭕ Doiracha",
+        "video_mp3_btn": "🎵 Video -> MP3",
+        "video_trim_btn": "✂️ Videoni kesish",
+        "video_send_btn": "📤 Videoni yuborish",
+        "video_caption_btn": "🏷 Ijtimoiy video caption",
+        "video_trim_prompt": "Video vaqtini `mm:ss - mm:ss` formatida yuboring",
+        "video_caption_saved": "✅ Yuklangan ijtimoiy videolar uchun yangi caption saqlandi.",
+        "video_caption_current": "Joriy caption: {caption}",
+        "video_mp3_started": "🔄 Videodan musiqa ajratilmoqda...",
+        "video_mp3_failed": "❌ Bu videodan musiqa ajratib bo'lmadi.",
+        "video_trim_started": "🔄 Video kesilmoqda...",
+        "video_trim_failed": "❌ Bu videoni kesib bo'lmadi.",
+        "video_ready": "✅ Tayyor.",
+        "stats_text": "<b>Bot statistikasi</b>\n\n🎵 Musiqa: {audio_edits}\n📥 Ijtimoiy videolar: {social_downloads}\n⭕ Doirachalar: {video_circles}\n🎥 Doirachadan video: {circle_to_video}\n🎶 Video -> MP3: {video_mp3}\n✂️ Video kesishlar: {video_trims}",
         "lang_ru": "Ruscha", "lang_en": "English", "lang_uz": "O'zbek",
     },
 }
@@ -548,6 +619,14 @@ def tr(user_id: int, key: str, **kwargs) -> str:
     lang = get_user_lang(user_id)
     text = TRANSLATIONS.get(lang, TRANSLATIONS["ru"]).get(key, TRANSLATIONS["ru"].get(key, key))
     return text.format(**kwargs) if kwargs else text
+
+
+def get_social_caption(user_id: int) -> str:
+    return user_social_captions.get(user_id, SOCIAL_RESULT_CAPTION)
+
+
+def record_stat(key: str) -> None:
+    bot_stats[key] = bot_stats.get(key, 0) + 1
 
 
 def start_menu(user_id: int) -> InlineKeyboardMarkup:
@@ -800,6 +879,22 @@ def music_menu(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def video_menu(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=tr(user_id, "video_circle_btn"), callback_data="video_circle"),
+                InlineKeyboardButton(text=tr(user_id, "video_mp3_btn"), callback_data="video_mp3"),
+            ],
+            [
+                InlineKeyboardButton(text=tr(user_id, "video_trim_btn"), callback_data="video_trim"),
+                InlineKeyboardButton(text=tr(user_id, "video_send_btn"), callback_data="video_send"),
+            ],
+            [InlineKeyboardButton(text=tr(user_id, "close"), callback_data="video_close")],
+        ]
+    )
+
+
 def seconds_to_mmss(seconds: int) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
@@ -834,11 +929,37 @@ def format_track_text(session: TrackSession) -> str:
     )
 
 
+def format_video_text(session: VideoSession) -> str:
+    trim_value = "—"
+    if session.trim_start_ms is not None and session.trim_end_ms is not None:
+        trim_value = (
+            f"{seconds_to_mmss(session.trim_start_ms // 1000)} - "
+            f"{seconds_to_mmss(session.trim_end_ms // 1000)}"
+        )
+
+    return (
+        f"{tr(session.user_id, 'video_editor_title')}\n\n"
+        f"💾 <b>{tr(session.user_id, 'size')}:</b> <code>{session.size_mb:.2f} MB</code>\n"
+        f"⏱ <b>{tr(session.user_id, 'duration')}:</b> <code>{seconds_to_mmss(session.duration_seconds)}</code>\n"
+        f"✂️ <b>{tr(session.user_id, 'trim')}:</b> {trim_value}"
+    )
+
+
 def get_session(user_id: int) -> Optional[TrackSession]:
     return user_sessions.get(user_id)
 
 
 async def delete_prompt_if_exists(session: TrackSession) -> None:
+    if session.prompt_message_id and session.prompt_chat_id:
+        try:
+            await bot.delete_message(session.prompt_chat_id, session.prompt_message_id)
+        except Exception:
+            pass
+    session.prompt_message_id = None
+    session.prompt_chat_id = None
+
+
+async def delete_video_prompt_if_exists(session: VideoSession) -> None:
     if session.prompt_message_id and session.prompt_chat_id:
         try:
             await bot.delete_message(session.prompt_chat_id, session.prompt_message_id)
@@ -872,6 +993,19 @@ async def send_prompt(
     parse_mode: Optional[str] = "HTML",
 ) -> None:
     await delete_prompt_if_exists(session)
+    sent = await source.message.answer(text, reply_markup=markup, parse_mode=parse_mode)
+    session.prompt_message_id = sent.message_id
+    session.prompt_chat_id = sent.chat.id
+
+
+async def send_video_prompt(
+    source: CallbackQuery,
+    session: VideoSession,
+    text: str,
+    markup: InlineKeyboardMarkup,
+    parse_mode: Optional[str] = "HTML",
+) -> None:
+    await delete_video_prompt_if_exists(session)
     sent = await source.message.answer(text, reply_markup=markup, parse_mode=parse_mode)
     session.prompt_message_id = sent.message_id
     session.prompt_chat_id = sent.chat.id
@@ -1362,17 +1496,18 @@ async def handle_video_link(message: Message, url: str) -> None:
         try:
             await message.answer_video(
                 video=FSInputFile(video_path),
-                caption=escape(SOCIAL_RESULT_CAPTION),
+                caption=escape(get_social_caption(message.from_user.id)),
                 parse_mode="HTML",
                 reply_markup=await social_result_menu(),
             )
         except Exception:
             await message.answer_document(
                 document=FSInputFile(video_path),
-                caption=escape(SOCIAL_RESULT_CAPTION),
+                caption=escape(get_social_caption(message.from_user.id)),
                 parse_mode="HTML",
                 reply_markup=await social_result_menu(),
             )
+        record_stat("social_downloads")
         await status.delete()
     except InstagramAuthRequiredError:
         await status.edit_text(tr(message.from_user.id, "instagram_auth_required"))
@@ -1385,6 +1520,18 @@ async def handle_video_link(message: Message, url: str) -> None:
             return
         logging.exception("Failed to download video from %s", url, exc_info=exc)
         await status.edit_text(tr(message.from_user.id, "video_download_failed"))
+
+
+async def handle_video_link_as_circle(message: Message, url: str) -> None:
+    status = await message.answer(tr(message.from_user.id, "circle_started"))
+    try:
+        video_path, _ = await asyncio.to_thread(download_video_from_url, url, message.from_user.id)
+        note_path = await asyncio.to_thread(convert_video_to_note, video_path, message.from_user.id)
+        await message.answer_video_note(video_note=FSInputFile(note_path), length=640)
+        record_stat("video_circles")
+        await status.delete()
+    except Exception:
+        await status.edit_text(tr(message.from_user.id, "circle_failed"))
 
 
 async def handle_video_circle(message: Message) -> None:
@@ -1427,9 +1574,64 @@ async def handle_video_circle(message: Message) -> None:
             video_note=FSInputFile(note_path),
             length=640,
         )
+        record_stat("video_circles")
         await status.delete()
     except Exception:
         await status.edit_text(tr(message.from_user.id, "circle_failed"))
+
+
+def extract_audio_from_video(input_path: str, user_id: int) -> str:
+    output_path = os.path.join(DOWNLOADS, f"{user_id}_video_audio.mp3")
+    command = [
+        FFMPEG_EXE,
+        "-y",
+        "-i",
+        input_path,
+        "-vn",
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        "192k",
+        output_path,
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
+def trim_video_file(input_path: str, user_id: int, start_ms: int, end_ms: int) -> str:
+    output_path = os.path.join(DOWNLOADS, f"{user_id}_trimmed_video.mp4")
+    duration = max(0.1, (end_ms - start_ms) / 1000)
+    command = [
+        FFMPEG_EXE,
+        "-y",
+        "-ss",
+        f"{start_ms / 1000:.2f}",
+        "-i",
+        input_path,
+        "-t",
+        f"{duration:.2f}",
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
 
 
 async def handle_video_note_to_video(message: Message) -> None:
@@ -1468,6 +1670,7 @@ async def handle_video_note_to_video(message: Message) -> None:
             return
 
         await message.answer_video(video=FSInputFile(video_path))
+        record_stat("circle_to_video")
         await status.delete()
     except Exception:
         await status.edit_text(tr(message.from_user.id, "uncircle_failed"))
@@ -1696,12 +1899,36 @@ async def search_cmd(message: Message) -> None:
 
 @dp.message(Command("circle"))
 async def circle_cmd(message: Message) -> None:
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) > 1:
+        url = extract_supported_url(parts[1])
+        if url:
+            await handle_video_link_as_circle(message, url)
+            return
     await message.answer(tr(message.from_user.id, "circle_prompt"))
 
 
 @dp.message(Command("video"))
 async def video_cmd(message: Message) -> None:
     await message.answer(tr(message.from_user.id, "uncircle_prompt"))
+
+
+@dp.message(Command("socialcaption"))
+async def social_caption_cmd(message: Message) -> None:
+    text = (message.text or "").split(maxsplit=1)
+    if len(text) < 2:
+        await message.answer(
+            tr(message.from_user.id, "video_caption_current", caption=escape(get_social_caption(message.from_user.id))),
+            parse_mode="HTML",
+        )
+        return
+    user_social_captions[message.from_user.id] = text[1].strip()
+    await message.answer(tr(message.from_user.id, "video_caption_saved"))
+
+
+@dp.message(Command("stats"))
+async def stats_cmd(message: Message) -> None:
+    await message.answer(tr(message.from_user.id, "stats_text", **bot_stats), parse_mode="HTML")
 
 
 @dp.message(Command("hits"))
@@ -1779,7 +2006,35 @@ async def handle_video_message(message: Message) -> None:
     settings = get_quick_settings(message.from_user.id)
     if session or settings.pending_action:
         return
-    await handle_video_circle(message)
+    video = message.video
+    if not video:
+        return
+    if video.file_size and video.file_size > MAX_VIDEO_SIZE_BYTES:
+        size_mb = video.file_size / 1024 / 1024
+        await message.answer(
+            tr(message.from_user.id, "video_too_large", size_mb=size_mb, max_mb=MAX_VIDEO_SIZE_MB)
+        )
+        return
+
+    source_ext = os.path.splitext(video.file_name or "")[1] or ".mp4"
+    source_path = os.path.join(TEMP_DIR, f"{message.from_user.id}_{video.file_unique_id}_editor{source_ext}")
+    await download_telegram_file(video.file_id, source_path)
+    video_session = VideoSession(
+        video_path=source_path,
+        original_file_name=video.file_name or f"{video.file_unique_id}.mp4",
+        duration_seconds=video.duration,
+        size_mb=(video.file_size or 0) / 1024 / 1024,
+        user_id=message.from_user.id,
+        chat_id=message.chat.id,
+        card_message_id=0,
+    )
+    card = await message.answer(
+        format_video_text(video_session),
+        reply_markup=video_menu(message.from_user.id),
+        parse_mode="HTML",
+    )
+    video_session.card_message_id = card.message_id
+    video_sessions[message.from_user.id] = video_session
 
 
 @dp.message(F.video_note)
@@ -1859,10 +2114,11 @@ async def handle_document_input(message: Message) -> None:
 @dp.message(F.text)
 async def handle_text_input(message: Message) -> None:
     session = get_session(message.from_user.id)
+    video_session = video_sessions.get(message.from_user.id)
     settings = get_quick_settings(message.from_user.id)
     text = message.text.strip()
     media_url = extract_supported_url(text)
-    if not session and not settings.pending_action:
+    if not session and not video_session and not settings.pending_action:
         if media_url:
             await handle_video_link(message, media_url)
         return
@@ -1917,6 +2173,34 @@ async def handle_text_input(message: Message) -> None:
             pass
         return
 
+    if video_session and video_session.pending_action == "await_video_trim":
+        try:
+            raw_start, raw_end = [part.strip() for part in text.replace("–", "-").split("-", 1)]
+            start_seconds = parse_mmss(raw_start)
+            end_seconds = parse_mmss(raw_end)
+            if start_seconds < 0 or end_seconds <= start_seconds or end_seconds > video_session.duration_seconds:
+                raise ValueError
+        except Exception:
+            await message.answer(tr(message.from_user.id, "invalid_trim_format"))
+            return
+
+        video_session.trim_start_ms = start_seconds * 1000
+        video_session.trim_end_ms = end_seconds * 1000
+        video_session.pending_action = None
+        await delete_video_prompt_if_exists(video_session)
+        await bot.edit_message_text(
+            chat_id=video_session.chat_id,
+            message_id=video_session.card_message_id,
+            text=format_video_text(video_session),
+            reply_markup=video_menu(message.from_user.id),
+            parse_mode="HTML",
+        )
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+
     if settings.pending_action == "await_quick_title":
         settings.title_mode = "value"
         settings.title_value = text
@@ -1953,6 +2237,7 @@ async def callbacks(call: CallbackQuery) -> None:
     data = call.data
     user_id = call.from_user.id
     session = get_session(user_id)
+    video_session = video_sessions.get(user_id)
     settings = get_quick_settings(user_id)
     answered = False
 
@@ -2049,6 +2334,55 @@ async def callbacks(call: CallbackQuery) -> None:
         await call.message.edit_text(tr(user_id, "weekly_hits_text"), reply_markup=back_to_menu_button(user_id))
     elif data == "search_music":
         await call.message.edit_text(tr(user_id, "search_text"), reply_markup=search_music_menu(user_id), parse_mode="HTML")
+    elif data == "video_close" and video_session:
+        await delete_video_prompt_if_exists(video_session)
+        try:
+            await bot.delete_message(video_session.chat_id, video_session.card_message_id)
+        except Exception:
+            pass
+        video_sessions.pop(user_id, None)
+    elif data == "video_trim" and video_session:
+        video_session.pending_action = "await_video_trim"
+        await send_video_prompt(call, video_session, tr(user_id, "video_trim_prompt"), cancel_menu(user_id), parse_mode="HTML")
+    elif data == "video_circle" and video_session:
+        await delete_video_prompt_if_exists(video_session)
+        status = await call.message.answer(tr(user_id, "circle_started"))
+        try:
+            note_path = await asyncio.to_thread(convert_video_to_note, video_session.video_path, user_id)
+            await call.message.answer_video_note(video_note=FSInputFile(note_path), length=640)
+            record_stat("video_circles")
+            await status.delete()
+        except Exception:
+            await status.edit_text(tr(user_id, "circle_failed"))
+    elif data == "video_mp3" and video_session:
+        await delete_video_prompt_if_exists(video_session)
+        status = await call.message.answer(tr(user_id, "video_mp3_started"))
+        try:
+            audio_path = await asyncio.to_thread(extract_audio_from_video, video_session.video_path, user_id)
+            await call.message.answer_audio(audio=FSInputFile(audio_path))
+            record_stat("video_mp3")
+            await status.delete()
+        except Exception:
+            await status.edit_text(tr(user_id, "video_mp3_failed"))
+    elif data == "video_send" and video_session:
+        await delete_video_prompt_if_exists(video_session)
+        status = await call.message.answer(tr(user_id, "video_ready"))
+        try:
+            video_path = video_session.video_path
+            if video_session.trim_start_ms is not None and video_session.trim_end_ms is not None:
+                status = await call.message.answer(tr(user_id, "video_trim_started"))
+                video_path = await asyncio.to_thread(
+                    trim_video_file,
+                    video_session.video_path,
+                    user_id,
+                    video_session.trim_start_ms,
+                    video_session.trim_end_ms,
+                )
+                record_stat("video_trims")
+            await call.message.answer_video(video=FSInputFile(video_path))
+            await status.delete()
+        except Exception:
+            await status.edit_text(tr(user_id, "video_trim_failed"))
     elif not session:
         await call.answer(tr(user_id, "send_music_first"), show_alert=True)
         answered = True
@@ -2108,14 +2442,19 @@ async def callbacks(call: CallbackQuery) -> None:
     elif data == "save_track":
         await delete_prompt_if_exists(session)
         await send_processed_track(call.message, session)
+        record_stat("audio_edits")
         try:
             await bot.delete_message(session.chat_id, session.card_message_id)
         except Exception:
             pass
         user_sessions.pop(user_id, None)
     elif data == "cancel_action":
-        session.pending_action = None
-        await delete_prompt_if_exists(session)
+        if session:
+            session.pending_action = None
+            await delete_prompt_if_exists(session)
+        if video_session:
+            video_session.pending_action = None
+            await delete_video_prompt_if_exists(video_session)
         await call.message.edit_text(tr(user_id, "action_cancelled"), reply_markup=back_to_menu_button(user_id))
     else:
         await call.answer(tr(user_id, "unknown_command"), show_alert=True)
@@ -2139,6 +2478,8 @@ async def main() -> None:
             BotCommand(command="search", description="Поиск музыки"),
             BotCommand(command="circle", description="Сделать кружочек из видео"),
             BotCommand(command="video", description="Сделать видео из кружочка"),
+            BotCommand(command="socialcaption", description="Подпись для соцвидео"),
+            BotCommand(command="stats", description="Статистика бота"),
             BotCommand(command="hits", description="Хиты недели"),
         ]
     )
