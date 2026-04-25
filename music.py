@@ -65,6 +65,8 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 FFMPEG_EXE = get_ffmpeg_exe()
 BOT_LINK_CACHE: Optional[str] = None
+SOCIAL_RESULT_CAPTION = "@MusicTagUzBot"
+SOCIAL_RESULT_BUTTON_TEXT = "📥 Скачать песню"
 
 
 @dataclass
@@ -691,10 +693,9 @@ async def get_bot_link() -> str:
 
 
 async def social_result_menu() -> InlineKeyboardMarkup:
-    me = await bot.me()
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"🤖 @{me.username}", url=await get_bot_link())],
+            [InlineKeyboardButton(text=SOCIAL_RESULT_BUTTON_TEXT, url=await get_bot_link())],
         ]
     )
 
@@ -1008,31 +1009,42 @@ def resolve_short_video_url(url: str) -> Optional[str]:
         return None
 
 
-def build_yt_dlp_options(user_id: int, platform: str) -> dict:
+def build_yt_dlp_options(
+    user_id: int,
+    platform: str,
+    *,
+    user_agent: Optional[str] = None,
+    include_headers: bool = True,
+) -> dict:
     outtmpl = os.path.join(TEMP_DIR, f"{user_id}_%(extractor)s_%(id)s.%(ext)s")
     referer = "https://www.tiktok.com/" if platform == "tiktok" else "https://www.instagram.com/"
-    return {
+    headers = {
+        "User-Agent": user_agent
+        or (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/135.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+        "Referer": referer,
+    }
+    options = {
         "outtmpl": outtmpl,
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "logger": SilentYtDlpLogger(),
         "merge_output_format": "mp4",
-        "format": "bv*+ba/b[ext=mp4]/b",
+        "format": "b[ext=mp4]/bv*+ba/b",
         "socket_timeout": 30,
         "retries": 3,
         "fragment_retries": 3,
         "extractor_retries": 3,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/91.0.4472.124 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
-            "Referer": referer,
-        },
+        "nocheckcertificate": True,
     }
+    if include_headers:
+        options["http_headers"] = headers
+    return options
 
 
 def is_instagram_auth_error(exc: Exception) -> bool:
@@ -1090,13 +1102,30 @@ def is_tiktok_short_link_error(url: str, exc: Exception) -> bool:
 
 def iter_ydl_options(user_id: int, url: str) -> list[dict]:
     platform = get_video_platform(url)
-    options = [build_yt_dlp_options(user_id, platform)]
-    if platform != "instagram":
-        return options
-    if os.path.exists(INSTAGRAM_COOKIES_FILE):
-        cookie_opts = dict(options[0])
-        cookie_opts["cookiefile"] = INSTAGRAM_COOKIES_FILE
-        options.insert(0, cookie_opts)
+    desktop_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/135.0.0.0 Safari/537.36"
+    )
+    mobile_agent = (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/18.3 Mobile/15E148 Safari/604.1"
+    )
+
+    variants = [
+        build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=True),
+        build_yt_dlp_options(user_id, platform, user_agent=mobile_agent, include_headers=True),
+        build_yt_dlp_options(user_id, platform, user_agent=desktop_agent, include_headers=False),
+    ]
+
+    options: list[dict] = []
+    if platform == "instagram" and os.path.exists(INSTAGRAM_COOKIES_FILE):
+        for variant in variants:
+            cookie_opts = dict(variant)
+            cookie_opts["cookiefile"] = INSTAGRAM_COOKIES_FILE
+            options.append(cookie_opts)
+    options.extend(variants)
     return options
 
 
@@ -1197,14 +1226,14 @@ async def handle_video_link(message: Message, url: str) -> None:
         try:
             await message.answer_video(
                 video=FSInputFile(video_path),
-                caption=escape(title),
+                caption=escape(SOCIAL_RESULT_CAPTION),
                 parse_mode="HTML",
                 reply_markup=await social_result_menu(),
             )
         except Exception:
             await message.answer_document(
                 document=FSInputFile(video_path),
-                caption=escape(title),
+                caption=escape(SOCIAL_RESULT_CAPTION),
                 parse_mode="HTML",
                 reply_markup=await social_result_menu(),
             )
