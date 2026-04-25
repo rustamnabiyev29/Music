@@ -949,6 +949,11 @@ def extract_supported_url(text: str) -> Optional[str]:
     return None
 
 
+def looks_like_instagram_cookies_file(file_name: str) -> bool:
+    lowered = file_name.lower()
+    return lowered.endswith(".txt") and "instagram" in lowered and "cookie" in lowered
+
+
 def resolve_yt_dlp_filepath(info: dict, fallback_path: str) -> str:
     requested_downloads = info.get("requested_downloads") or []
     if requested_downloads:
@@ -1532,7 +1537,7 @@ async def handle_document_input(message: Message) -> None:
         return
 
     file_name = (document.file_name or "").strip()
-    if file_name.lower() != "instagram_cookies.txt":
+    if file_name.lower() != "instagram_cookies.txt" and not looks_like_instagram_cookies_file(file_name):
         await message.answer(tr(message.from_user.id, "instagram_cookies_invalid"))
         return
 
