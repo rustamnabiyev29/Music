@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import subprocess
 import time
 import urllib.request
@@ -52,6 +53,7 @@ TEMP_DIR = os.path.join(DOWNLOADS, "temp")
 DEFAULT_COVER_PATH = os.path.join(TEMP_DIR, "default_cover.jpg")
 INSTAGRAM_COOKIES_FILE = os.path.join(os.getcwd(), "instagram_cookies.txt")
 ADMIN_DATA_FILE = os.path.join(os.getcwd(), "admin_data.json")
+USERS_DB_FILE = os.path.join(os.getcwd(), "users.db")
 MAX_AUDIO_SIZE_MB = 20
 MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024
 MAX_VIDEO_SIZE_MB = 49
@@ -162,15 +164,88 @@ def load_admin_data() -> dict:
     return data
 
 
-_admin_data = load_admin_data()
-known_users: dict[int, dict] = {}
-for raw_user_id, info in _admin_data.get("users", {}).items():
-    try:
-        user_id = int(raw_user_id)
-    except Exception:
-        continue
-    if isinstance(info, dict):
-        known_users[user_id] = info
+def get_db_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(USERS_DB_FILE)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_user_database() -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                first_name TEXT NOT NULL DEFAULT '',
+                last_name TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL DEFAULT '',
+                last_seen INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.commit()
+
+
+def migrate_admin_data_to_db() -> None:
+    legacy_data = load_admin_data()
+    legacy_users = legacy_data.get("users", {})
+    if not isinstance(legacy_users, dict) or not legacy_users:
+        return
+    with get_db_connection() as connection:
+        for raw_user_id, info in legacy_users.items():
+            if not isinstance(info, dict):
+                continue
+            try:
+                user_id = int(raw_user_id)
+            except Exception:
+                continue
+            last_seen = int(info.get("last_seen") or time.time())
+            connection.execute(
+                """
+                INSERT INTO users (user_id, first_name, last_name, username, last_seen, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    first_name = excluded.first_name,
+                    last_name = excluded.last_name,
+                    username = excluded.username,
+                    last_seen = MAX(users.last_seen, excluded.last_seen)
+                """,
+                (
+                    user_id,
+                    info.get("first_name", "") or "",
+                    info.get("last_name", "") or "",
+                    info.get("username", "") or "",
+                    last_seen,
+                    last_seen,
+                ),
+            )
+        connection.commit()
+
+
+def load_known_users() -> dict[int, dict]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT user_id, first_name, last_name, username, last_seen, created_at
+            FROM users
+            """
+        ).fetchall()
+    return {
+        int(row["user_id"]): {
+            "first_name": row["first_name"] or "",
+            "last_name": row["last_name"] or "",
+            "username": row["username"] or "",
+            "last_seen": int(row["last_seen"] or 0),
+            "created_at": int(row["created_at"] or 0),
+        }
+        for row in rows
+    }
+
+
+init_user_database()
+migrate_admin_data_to_db()
+known_users: dict[int, dict] = load_known_users()
 
 
 def save_admin_data() -> None:
@@ -189,12 +264,36 @@ def register_user(user) -> None:
     user_id = getattr(user, "id", None)
     if not isinstance(user_id, int):
         return
-    known_users[user_id] = {
+    now = int(time.time())
+    user_info = {
         "first_name": getattr(user, "first_name", "") or "",
         "last_name": getattr(user, "last_name", "") or "",
         "username": getattr(user, "username", "") or "",
-        "last_seen": int(time.time()),
+        "last_seen": now,
+        "created_at": known_users.get(user_id, {}).get("created_at", now),
     }
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO users (user_id, first_name, last_name, username, last_seen, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                first_name = excluded.first_name,
+                last_name = excluded.last_name,
+                username = excluded.username,
+                last_seen = excluded.last_seen
+            """,
+            (
+                user_id,
+                user_info["first_name"],
+                user_info["last_name"],
+                user_info["username"],
+                user_info["last_seen"],
+                user_info["created_at"],
+            ),
+        )
+        connection.commit()
+    known_users[user_id] = user_info
     save_admin_data()
 
 
